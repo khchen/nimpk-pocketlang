@@ -597,13 +597,13 @@ bool pkCheckArgcRange(PKVM* vm, int argc, int min, int max) {
 
   if (argc < min) {
     char buff[STR_INT_BUFF_SIZE]; sprintf(buff, "%d", min);
-    VM_SET_ERROR(vm, stringFormat(vm, "Expected at least %s argument(s).",
+    VM_SET_ERROR(vm, stringFormat(vm, "Expected at least $ argument(s).",
                                        buff));
     return false;
 
   } else if (argc > max) {
     char buff[STR_INT_BUFF_SIZE]; sprintf(buff, "%d", max);
-    VM_SET_ERROR(vm, stringFormat(vm, "Expected at most %s argument(s).",
+    VM_SET_ERROR(vm, stringFormat(vm, "Expected at most $ argument(s).",
                                        buff));
     return false;
   }
@@ -714,7 +714,8 @@ bool pkIsSlotInstanceOf(PKVM* vm, int inst, int cls, bool* val) {
   VALIDATE_SLOT_INDEX(inst);
   VALIDATE_SLOT_INDEX(cls);
 
-  *val = varIsType(vm, inst, cls);
+  Var instance = ARG(inst), class_ = SLOT(cls);
+  *val = varIsType(vm, instance, class_);
   return !VM_HAS_ERROR(vm);
 }
 
@@ -996,6 +997,20 @@ bool pkCallFunction(PKVM* vm, int fn, int argc, int argv, int ret) {
     Var retval;
     vmCallFunction(vm, func, argc,
                    vm->fiber->ret + argv, &retval);
+    if (ret >= 0) SET_SLOT(ret, retval);
+    return !VM_HAS_ERROR(vm);
+  }
+
+  if (IS_OBJ_TYPE(SLOT(fn), OBJ_METHOD_BIND)) {
+    MethodBind* mb = (MethodBind*) AS_OBJ(SLOT(fn));
+    if (IS_UNDEF(mb->instance)) {
+      VM_SET_ERROR(vm, newString(vm, "Cannot call an unbound method."));
+      return false;
+    }
+
+    Var retval;
+    vmCallMethod(vm, mb->instance, mb->method, argc,
+                 vm->fiber->ret + argv, &retval);
     if (ret >= 0) SET_SLOT(ret, retval);
     return !VM_HAS_ERROR(vm);
   }

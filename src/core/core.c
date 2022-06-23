@@ -1304,9 +1304,10 @@ DEF(_methodBindBind,
 
   Var instance = ARG(1);
 
+  // We can bind any instance that has a method of the same name,
+  // aka "duck typing". So we don't panic on "method != self->method".
   Closure* method;
-  if (!hasMethod(vm, instance, method_name, &method)
-                     || method != self->method) {
+  if (!hasMethod(vm, instance, method_name, &method)) {
     VM_SET_ERROR(vm, newString(vm, "Cannot bind method, instance and method "
                                    "types miss-match."));
     return;
