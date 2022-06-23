@@ -233,8 +233,8 @@ static void popMarkedObjectsInternal(Object* obj, PKVM* vm) {
 
       markObject(vm, &fiber->caller->_super);
       markObject(vm, &fiber->native->_super);
-      markObject(vm, &fiber->error->_super);
 
+      markValue(vm, fiber->error);
       markValue(vm, fiber->self);
 
     } break;
@@ -495,6 +495,7 @@ Fiber* newFiber(PKVM* vm, Closure* closure) {
 
   fiber->open_upvalues = NULL;
   fiber->self = VAR_UNDEFINED;
+  fiber->error = VAR_NULL;
 
   // Initialize the return value to null (doesn't really have to do that here
   // but if we're trying to debut it may crash when dumping the return value).
@@ -553,10 +554,13 @@ Instance* newInstance(PKVM* vm, Class* cls) {
   vmPushTempRef(vm, &inst->_super); // inst.
 
   inst->cls = cls;
-  if (cls->new_fn != NULL) {
-    inst->native = cls->new_fn(vm);
-  } else {
-    inst->native = NULL;
+  inst->native = NULL;
+  while (cls != NULL) {
+    if (cls->new_fn != NULL) {
+      inst->native = cls->new_fn(vm);
+      break;
+    }
+    cls = cls->super_class;
   }
 
   inst->attribs = newMap(vm);
@@ -747,45 +751,82 @@ String* stringReplace(PKVM* vm, String* self,
   return replaced;
 }
 
+void* _memmem(const void *l, size_t l_len, const void *s, size_t s_len)
+{
+  register char *cur, *last;
+  const char *cl = (const char *)l;
+  const char *cs = (const char *)s;
+
+  /* we need something to compare */
+  if (l_len == 0 || s_len == 0)
+    return NULL;
+
+  /* "s" must be smaller or equal to "l" */
+  if (l_len < s_len)
+    return NULL;
+
+  /* special case where s_len == 1 */
+  if (s_len == 1)
+    return memchr(l, (int)*cs, l_len);
+
+  /* the last position where its possible to find "s" in "l" */
+  last = (char *)cl + l_len - s_len;
+
+  for (cur = (char *)cl; cur <= last; cur++)
+    if (cur[0] == cs[0] && memcmp(cur, cs, s_len) == 0)
+      return cur;
+
+  return NULL;
+}
+
 List* stringSplit(PKVM* vm, String* self, String* sep) {
-
-  ASSERT(sep->length != 0, OOPS);
-
-  const char* s = self->data; // Current position in self.
 
   List* list = newList(vm, 0);
   vmPushTempRef(vm, &list->_super); // list.
-  do {
-    const char* match = strstr(s, sep->data);
-    if (match == NULL) {
 
-      // Add the tail string from [s] till the end. Optimize case: if the
-      // string doesn't have any match we can reuse self.
-      if (s == self->data) {
-        ASSERT(list->elements.count == 0, OOPS);
-        listAppend(vm, list, VAR_OBJ(self));
+  if (sep == NULL || sep->length == 0) {
+    for (int i = 0; i < self->length; i++) {
+      String* ch = newStringLength(vm, &self->data[i], 1);
+      vmPushTempRef(vm, &ch->_super); // ch
+      listAppend(vm, list, VAR_OBJ(ch));
+      vmPopTempRef(vm); // ch
+    }
+  } else {
 
-      } else {
-        String* tail = newStringLength(vm, s,
-          (uint32_t)(self->length - (s - self->data)));
-        vmPushTempRef(vm, &tail->_super); // tail.
-        listAppend(vm, list, VAR_OBJ(tail));
-        vmPopTempRef(vm); // tail.
+    const char* s = self->data; // Current position in self.
+    do {
+      const char* match = _memmem(s, self->length - (s - self->data),
+        sep->data, sep->length);
+
+      if (match == NULL) {
+
+        // Add the tail string from [s] till the end. Optimize case: if the
+        // string doesn't have any match we can reuse self.
+        if (s == self->data) {
+          listAppend(vm, list, VAR_OBJ(self));
+
+        } else {
+          String* tail = newStringLength(vm, s,
+            (uint32_t)(self->length - (s - self->data)));
+          vmPushTempRef(vm, &tail->_super); // tail.
+          listAppend(vm, list, VAR_OBJ(tail));
+          vmPopTempRef(vm); // tail.
+        }
+
+        break; // We're done.
       }
 
-      break; // We're done.
-    }
+      String* split = newStringLength(vm, s, (uint32_t)(match - s));
+      vmPushTempRef(vm, &split->_super); // split.
+      listAppend(vm, list, VAR_OBJ(split));
+      vmPopTempRef(vm); // split.
 
-    String* split = newStringLength(vm, s, (uint32_t)(match - s));
-    vmPushTempRef(vm, &split->_super); // split.
-    listAppend(vm, list, VAR_OBJ(split));
-    vmPopTempRef(vm); // split.
+      s = match + sep->length;
 
-    s = match + sep->length;
+    } while (true);
+  }
 
-  } while (true);
   vmPopTempRef(vm); // list.
-
   return list;
 }
 
@@ -878,6 +919,15 @@ void listInsert(PKVM* vm, List* self, uint32_t index, Var value) {
   self->elements.data[index] = value;
 }
 
+void listShrink(PKVM* vm, List* self) {
+  if (self->elements.capacity / GROW_FACTOR >= self->elements.count) {
+    self->elements.data = (Var*) vmRealloc(vm, self->elements.data,
+      sizeof(Var) * self->elements.capacity,
+      sizeof(Var) * self->elements.capacity / GROW_FACTOR);
+    self->elements.capacity /= GROW_FACTOR;
+  }
+}
+
 Var listRemoveAt(PKVM* vm, List* self, uint32_t index) {
   ASSERT_INDEX(index, self->elements.count);
 
@@ -890,12 +940,7 @@ Var listRemoveAt(PKVM* vm, List* self, uint32_t index) {
   }
 
   // Shrink the size if it's too much excess.
-  if (self->elements.capacity / GROW_FACTOR >= self->elements.count) {
-    self->elements.data = (Var*) vmRealloc(vm, self->elements.data,
-      sizeof(Var) * self->elements.capacity,
-      sizeof(Var) * self->elements.capacity / GROW_FACTOR);
-    self->elements.capacity /= GROW_FACTOR;
-  }
+  listShrink(vm, self);
 
   if (IS_OBJ(removed)) vmPopTempRef(vm);
 
@@ -1127,7 +1172,7 @@ Var mapRemoveKey(PKVM* vm, Map* self, Var key) {
 }
 
 bool fiberHasError(Fiber* fiber) {
-  return fiber->error != NULL;
+  return fiber->error != VAR_NULL;
 }
 
 void freeObject(PKVM* vm, Object* self) {

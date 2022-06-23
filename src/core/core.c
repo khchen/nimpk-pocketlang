@@ -200,15 +200,21 @@ String* varToString(PKVM* vm, Var self, bool repr) {
     if (has_method) {
       Var ret = VAR_NULL;
       PkResult result = vmCallMethod(vm, self, closure, 0, NULL, &ret);
-      if (result != PK_RESULT_SUCCESS) return NULL;
 
-      if (!IS_OBJ_TYPE(ret, OBJ_STRING)) {
-        VM_SET_ERROR(vm, newString(vm, "method " LITS__str " returned "
-                                       "non-string type."));
-        return NULL;
+      if (!VM_HAS_ERROR(vm)) {
+        if (result != PK_RESULT_SUCCESS) return NULL;
+        if (!IS_OBJ_TYPE(ret, OBJ_STRING)) {
+          VM_SET_ERROR(vm, newString(vm, "method " LITS__str " returned "
+                                         "non-string type."));
+          return NULL;
+        }
+        return (String*)AS_OBJ(ret);
       }
 
-      return (String*)AS_OBJ(ret);
+      // already has error -> dealing with error message
+      if (result == PK_RESULT_SUCCESS && IS_OBJ_TYPE(ret, OBJ_STRING)) {
+        return (String*)AS_OBJ(ret);
+      }
     }
 
     // If we reached here, it doesn't have a to string override. just
@@ -217,6 +223,119 @@ String* varToString(PKVM* vm, Var self, bool repr) {
 
   if (repr) return toRepr(vm, self);
   return toString(vm, self);
+}
+
+Var pkSprintf(PKVM* vm, String* string, List* args) {
+  pkByteBuffer retbuff;
+  pkByteBufferInit(&retbuff);
+
+  pkByteBuffer fmtbuff;
+  pkByteBufferInit(&fmtbuff);
+  pkByteBufferReserve(&fmtbuff, vm, 32);
+
+  pkByteBuffer outbuff;
+  pkByteBufferInit(&outbuff);
+  pkByteBufferReserve(&outbuff, vm, 64);
+
+  int index = 0; // index of args
+  char* cur = string->data;
+  char* percent = NULL;
+
+  while (cur < string->data + string->length) {
+    if (percent == NULL) {
+      if (*cur == '%') {
+        percent = cur++;
+      } else {
+        pkByteBufferWrite(&retbuff, vm, *cur++);
+      }
+      continue;
+    }
+
+    char specifier;
+    switch (*cur++) {
+      case '%':
+        pkByteBufferWrite(&retbuff, vm, '%');
+        percent = NULL;
+        continue;
+
+      case 'f': case 'F': case 'e': case 'E': case 'g': case 'G':
+        specifier = 'f'; break;
+
+      case 'd': case 'i': case 'u': case 'x': case 'X': case 'o': case 'b':
+        specifier = 'i'; break;
+
+      case 'c':
+        specifier = 'c'; break;
+
+      case 's':
+        specifier = 's'; break;
+
+      default:
+        continue;
+    }
+
+    fmtbuff.count = 0;
+    while (percent < cur) {
+      char c = *percent++;
+      if (c == 'c') c = 's'; // support encode to utf8 later
+      if (c != '*') pkByteBufferWrite(&fmtbuff, vm, c); // don't support '*'
+    }
+    pkByteBufferWrite(&fmtbuff, vm, 0);
+    percent = NULL;
+
+    double num = 0;
+    String* str = NULL;
+
+    if (index < args->elements.count) {
+      if (specifier == 's') {
+        str = varToString(vm, args->elements.data[index], false);
+
+      } else {
+        if (!isNumeric(args->elements.data[index], &num)) {
+          if (IS_OBJ_TYPE(args->elements.data[index], OBJ_STRING)) {
+            str = (String*) AS_OBJ(args->elements.data[index]);
+            utilToNumber(str->data, &num);
+          }
+        }
+      }
+      index++;
+    }
+
+    int len = 0;
+    for (;;) {
+      switch (specifier) {
+        case 'f':
+          len = snprintf(outbuff.data, outbuff.capacity, fmtbuff.data, num);
+          break;
+        case 'i':
+          len = snprintf(outbuff.data, outbuff.capacity, fmtbuff.data, (int64_t) num);
+          break;
+        case 'c':
+          uint8_t utf8[4];
+          utf8[utf8_encodeValue((int) num, utf8)] = 0;
+          len = snprintf(outbuff.data, outbuff.capacity, fmtbuff.data, utf8);
+          break;
+        case 's':
+          if (str != NULL) {
+            len = snprintf(outbuff.data, outbuff.capacity, fmtbuff.data, str->data);
+          }
+          break;
+        default:
+          UNREACHABLE();
+      }
+
+      if (len + 1 <= outbuff.capacity) break;
+      pkByteBufferReserve(&outbuff, vm, len + 1);
+    }
+
+    pkByteBufferAddString(&retbuff, vm, outbuff.data, len);
+  }
+
+  String* str = newStringLength(vm, (const char*)retbuff.data, retbuff.count);
+  pkByteBufferClear(&retbuff, vm);
+  pkByteBufferClear(&outbuff, vm);
+  pkByteBufferClear(&fmtbuff, vm);
+  return VAR_OBJ(str);
 }
 
 // Calls a unary operator overload method. If the method does not exists it'll
@@ -267,6 +386,26 @@ static void _collectMethods(PKVM* vm, List* list, Class* cls) {
       VAR_OBJ(newString(vm, cls->methods.data[i]->fn->name)));
   }
   _collectMethods(vm, list, cls->super_class);
+}
+
+static void _listJoinImpl(PKVM* vm, List* list, String* sep) {
+  pkByteBuffer buff;
+  pkByteBufferInit(&buff);
+
+  for (uint32_t i = 0; i < list->elements.count; i++) {
+    String* str = varToString(vm, list->elements.data[i], false);
+    if (str == NULL) RET(VAR_NULL);
+    vmPushTempRef(vm, &str->_super); // elem
+    if (sep != NULL && i != 0) {
+      pkByteBufferAddString(&buff, vm, sep->data, sep->length);
+    }
+    pkByteBufferAddString(&buff, vm, str->data, str->length);
+    vmPopTempRef(vm); // elem
+  }
+
+  String* str = newStringLength(vm, (const char*)buff.data, buff.count);
+  pkByteBufferClear(&buff, vm);
+  RET(VAR_OBJ(str));
 }
 
 /*****************************************************************************/
@@ -435,6 +574,22 @@ DEF(coreAssert,
       VM_SET_ERROR(vm, newString(vm, "Assertion failed."));
     }
   }
+}
+
+DEF(coreRaise,
+  "raise([message:String]) -> Null",
+  "Raise a runtime error.") {
+
+  int argc = ARGC;
+  if (argc > 1) { // raise() or raise(message).
+    RET_ERR(newString(vm, "Invalid argument count."));
+  }
+
+  if (argc == 1 && ARG(1) != VAR_NULL) {
+    vm->fiber->error = ARG(1);
+    return;
+  }
+  VM_SET_ERROR(vm, newString(vm, "No exception to reraise."));
 }
 
 DEF(coreBin,
@@ -639,6 +794,78 @@ DEF(coreExit,
   exit((int)value);
 }
 
+DEF(coreCompile,
+  "compile(code:String) -> Closure",
+  "Compiles source code into a closure (does not execute automatically).") {
+
+  String* code;
+  if (!validateArgString(vm, 1, &code)) return;
+  vmPushTempRef(vm, &code->_super); // code.
+
+  Module* module = newModule(vm);
+  vmPushTempRef(vm, &module->_super); // module.
+  {
+    module->path = newString(vm, "@(meta)");
+    Function* body_fn = newFunction(vm, "@meta", 5, module, false,
+      NULL, NULL);
+    body_fn->arity = 0;
+
+    vmPushTempRef(vm, &body_fn->_super); // body_fn.
+    module->body = newClosure(vm, body_fn);
+    vmPopTempRef(vm); // body_fn.
+
+    CompileOptions options = newCompilerOptions();
+    options.runtime = true;
+    PkResult result = compile(vm, module, code->data, &options);
+
+    if (result == PK_RESULT_SUCCESS) {
+      ARG(0) = VAR_OBJ(module->body);
+    }
+  }
+  vmPopTempRef(vm); // module.
+  vmPopTempRef(vm); // code.
+}
+
+DEF(coreEval,
+  "eval(expression:String) -> Var",
+  "Evaluate an expression and returns the result.\n"
+  "Only global variables can be used in the expression.") {
+
+  String* expr;
+  if (!validateArgString(vm, 1, &expr)) return;
+
+  String* code = stringFormat(vm, "return (@)", expr);
+  vmPushTempRef(vm, &code->_super); // code.
+  {
+    CallFrame* frame = &vm->fiber->frames[vm->fiber->frame_count - 1];
+    Module* current_module = frame->closure->fn->owner;
+
+    Module* new_module = newModule(vm);
+    vmPushTempRef(vm, &new_module->_super); // new_module.
+    {
+      // let global variables become available
+      pkVarBufferConcat(&new_module->constants, vm,
+        &current_module->constants);
+      pkVarBufferConcat(&new_module->globals, vm,
+        &current_module->globals);
+      pkUintBufferConcat(&new_module->global_names, vm,
+        &current_module->global_names);
+
+      CompileOptions options = newCompilerOptions();
+      options.runtime = true;
+      PkResult result = compile(vm, new_module, code->data, &options);
+
+      if (result == PK_RESULT_SUCCESS) {
+        Var ret = VAR_NULL;
+        vmCallFunction(vm, new_module->body, 0, NULL, &ret);
+        ARG(0) = ret;
+      }
+    }
+    vmPopTempRef(vm); // new_module.
+  }
+  vmPopTempRef(vm); // code.
+}
+
 // List functions.
 // ---------------
 
@@ -654,29 +881,22 @@ DEF(coreListAppend,
   RET(VAR_OBJ(list));
 }
 
-// TODO: currently it takes one argument (to test string interpolation).
-//       Add join delimeter as an optional argument.
 DEF(coreListJoin,
-  "list_join(self:List) -> String",
+  "list_join(self:List [, sep:String=""]) -> String",
   "Concatinate the elements of the list and return as a string.") {
 
-  List* list;
-  if (!validateArgList(vm, 1, &list)) return;
-
-  pkByteBuffer buff;
-  pkByteBufferInit(&buff);
-
-  for (uint32_t i = 0; i < list->elements.count; i++) {
-    String* str = varToString(vm, list->elements.data[i], false);
-    if (str == NULL) RET(VAR_NULL);
-    vmPushTempRef(vm, &str->_super); // elem
-    pkByteBufferAddString(&buff, vm, str->data, str->length);
-    vmPopTempRef(vm); // elem
+  int argc = ARGC;
+  if (argc != 1 && argc != 2) {
+    RET_ERR(newString(vm, "Invalid argument count."));
   }
 
-  String* str = newStringLength(vm, (const char*)buff.data, buff.count);
-  pkByteBufferClear(&buff, vm);
-  RET(VAR_OBJ(str));
+  List* list;
+  String* sep = NULL;
+
+  if (!validateArgList(vm, 1, &list)) return;
+  if (argc == 2) sep = varToString(vm, ARG(2), false);
+
+  _listJoinImpl(vm, list, sep);
 }
 
 static void initializeBuiltinFN(PKVM* vm, Closure** bfn, const char* name,
@@ -698,6 +918,7 @@ static void initializeBuiltinFunctions(PKVM* vm) {
   INITIALIZE_BUILTIN_FN("help",      coreHelp,    -1);
   INITIALIZE_BUILTIN_FN("dir",       coreDir,      1);
   INITIALIZE_BUILTIN_FN("assert",    coreAssert,  -1);
+  INITIALIZE_BUILTIN_FN("raise",     coreRaise,   -1);
   INITIALIZE_BUILTIN_FN("bin",       coreBin,      1);
   INITIALIZE_BUILTIN_FN("hex",       coreHex,      1);
   INITIALIZE_BUILTIN_FN("yield",     coreYield,   -1);
@@ -709,10 +930,12 @@ static void initializeBuiltinFunctions(PKVM* vm) {
   INITIALIZE_BUILTIN_FN("print",     corePrint,   -1);
   INITIALIZE_BUILTIN_FN("input",     coreInput,   -1);
   INITIALIZE_BUILTIN_FN("exit",      coreExit,    -1);
+  INITIALIZE_BUILTIN_FN("compile",   coreCompile,  1);
+  INITIALIZE_BUILTIN_FN("eval",      coreEval,     1);
 
   // List functions.
   INITIALIZE_BUILTIN_FN("list_append", coreListAppend, 2);
-  INITIALIZE_BUILTIN_FN("list_join",   coreListJoin,   1);
+  INITIALIZE_BUILTIN_FN("list_join",   coreListJoin,  -1);
 
 #undef INITIALIZE_BUILTIN_FN
 }
@@ -1068,16 +1291,13 @@ DEF(_stringReplace,
 }
 
 DEF(_stringSplit,
-  "String.split(sep:String) -> List",
+  "String.split([sep:String]) -> List",
   "Split the string into a list of string seperated by [sep] delimeter.") {
 
-  String* sep;
-  if (!validateArgString(vm, 1, &sep)) return;
+  if (!pkCheckArgcRange(vm, ARGC, 0, 1)) return;
+  String* sep = NULL;
 
-  if (sep->length == 0) {
-    RET_ERR(newString(vm, "Cannot use empty string as a seperator."));
-  }
-
+  if (ARGC == 1) sep = varToString(vm, ARG(1), false);
   RET(VAR_OBJ(stringSplit(vm, (String*)AS_OBJ(SELF), sep)));
 }
 
@@ -1240,6 +1460,52 @@ DEF(_listFind,
   RET(VAR_NUM(-1));
 }
 
+DEF(_listJoin,
+  "List.join([sep:String=""]) -> String",
+  "Concatinate the elements of the list and return as a string.") {
+
+  ASSERT(IS_OBJ_TYPE(SELF, OBJ_LIST), OOPS);
+  List* list = (List*)AS_OBJ(SELF);
+  String* sep = NULL;
+
+  if (!pkCheckArgcRange(vm, ARGC, 0, 1)) return;
+  if (ARGC == 1) sep = varToString(vm, ARG(1), false);
+
+  _listJoinImpl(vm, list, sep);
+}
+
+DEF(_listResize,
+  "List.resize(length:Number) -> List",
+  "Resize a list to length and return the List.") {
+
+  ASSERT(IS_OBJ_TYPE(SELF, OBJ_LIST), OOPS);
+  List* self = (List*)AS_OBJ(SELF);
+
+  int64_t len;
+  if (!validateInteger(vm, ARG(1), &len, "Argument 1")) return;
+
+  if (len < 0) { // negative value to reduce the size.
+    len = self->elements.count + len;
+  }
+  if (len < 0) {
+    RET_ERR(newString(vm, "List.resize index out of bounds."));
+  }
+
+  if (len == 0) {
+    listClear(vm, self);
+
+  } else if (len > self->elements.count) {
+    pkVarBufferFill(&self->elements, vm, VAR_NULL,
+      len-self->elements.count);
+
+  } else if (len < self->elements.count) {
+    self->elements.count = len;
+    listShrink(vm, self);
+  }
+
+  RET(SELF);
+}
+
 DEF(_listClear,
   "List.clear() -> Null",
   "Removes all the entries in the list.") {
@@ -1377,6 +1643,26 @@ DEF(_fiberRun,
     self->caller = vm->fiber;
     vm->fiber = self;
     self->state = FIBER_RUNNING;
+    self->trying = false;
+  }
+}
+
+DEF(_fiberTry,
+  "Fiber.try(...) -> Var",
+  "The same as Fiber.run() but store the error message in 'error' attrib "
+  "instead of exiting.") {
+
+  ASSERT(IS_OBJ_TYPE(SELF, OBJ_FIBER), OOPS);
+  Fiber* self = (Fiber*) AS_OBJ(SELF);
+
+  // Switch fiber and start execution. New fibers are marked as running in
+  // either it's stats running with vmRunFiber() or here -- inserting a
+  // fiber over a running (callee) fiber.
+  if (vmPrepareFiber(vm, self, ARGC, &ARG(1))) {
+    self->caller = vm->fiber;
+    vm->fiber = self;
+    self->state = FIBER_RUNNING;
+    self->trying = true;
   }
 }
 
@@ -1462,7 +1748,7 @@ static void initializePrimitiveClasses(PKVM* vm) {
   ADD_METHOD(PK_STRING, "upper",   _stringUpper,    0);
   ADD_METHOD(PK_STRING, "find",    _stringFind,    -1);
   ADD_METHOD(PK_STRING, "replace", _stringReplace, -1);
-  ADD_METHOD(PK_STRING, "split",   _stringSplit,    1);
+  ADD_METHOD(PK_STRING, "split",   _stringSplit,   -1);
   ADD_METHOD(PK_STRING, "startswith", _stingStartswith, 1);
   ADD_METHOD(PK_STRING, "endswith", _stingEndswith, 1);
 
@@ -1471,6 +1757,8 @@ static void initializePrimitiveClasses(PKVM* vm) {
   ADD_METHOD(PK_LIST,   "append", _listAppend,     1);
   ADD_METHOD(PK_LIST,   "pop",    _listPop,       -1);
   ADD_METHOD(PK_LIST,   "insert", _listInsert,     2);
+  ADD_METHOD(PK_LIST,   "join",   _listJoin,      -1);
+  ADD_METHOD(PK_LIST,   "resize", _listResize,     1);
 
   ADD_METHOD(PK_MAP,    "clear",  _mapClear,       0);
   ADD_METHOD(PK_MAP,    "get",    _mapGet,        -1);
@@ -1484,6 +1772,7 @@ static void initializePrimitiveClasses(PKVM* vm) {
   ADD_METHOD(PK_MODULE, "globals", _moduleGlobals, 0);
 
   ADD_METHOD(PK_FIBER,  "run",    _fiberRun,      -1);
+  ADD_METHOD(PK_FIBER,  "try",    _fiberTry,      -1);
   ADD_METHOD(PK_FIBER,  "resume", _fiberResume,   -1);
 
 #undef ADD_METHOD
@@ -1740,7 +2029,18 @@ Var varModulo(PKVM* vm, Var v1, Var v2, bool inplace) {
   }
 
   if (IS_OBJ_TYPE(v1, OBJ_STRING)) {
-    TODO; // "fmt" % v2.
+    Var result;
+    if (IS_OBJ_TYPE(v2, OBJ_LIST)) {
+      result = pkSprintf(vm, (String*) AS_OBJ(v1), (List*) AS_OBJ(v2));
+
+    } else {
+      List* args = newList(vm, 1);
+      vmPushTempRef(vm, &args->_super);
+      listAppend(vm, args, v2);
+      result = pkSprintf(vm, (String*) AS_OBJ(v1), args);
+      vmPopTempRef(vm);
+    }
+    return result;
   }
 
   CHECK_INST_BINARY_OP("%");
@@ -1929,6 +2229,12 @@ bool varContains(PKVM* vm, Var elem, Var container) {
       return !IS_UNDEF(mapGet(map, elem));
     } break;
 
+    case OBJ_RANGE: {
+      Range* range = (Range*)AS_OBJ(container);
+      double num = AS_NUM(elem);
+      return num >= range->from && num < range->to;
+    } break;
+
     default: break;
   }
 
@@ -1997,7 +2303,37 @@ Var varGetAttrib(PKVM* vm, Var on, String* attrib) {
     } break;
 
     case OBJ_MAP: {
-      // TODO:
+      Map* map = (Map*)obj;
+      switch (attrib->hash) {
+
+        case CHECK_HASH("length", 0x83d03615):
+          return VAR_NUM((double)(map->count));
+
+        case CHECK_HASH("keys", 0xF94A08CD): {
+          List* list = newList(vm, map->count);
+          vmPushTempRef(vm, &list->_super); // list.
+          for (uint32_t i = 0; i < map->capacity; i++) {
+            if (!IS_UNDEF(map->entries[i].key)) {
+              listAppend(vm, list, map->entries[i].key);
+            }
+          }
+          vmPopTempRef(vm); // list.
+          return VAR_OBJ(list);
+        }
+
+        case CHECK_HASH("values", 0x34474C3B): {
+          List* list = newList(vm, map->count);
+          vmPushTempRef(vm, &list->_super); // list.
+          for (uint32_t i = 0; i < map->capacity; i++) {
+            if (!IS_UNDEF(map->entries[i].key)) {
+              listAppend(vm, list, map->entries[i].value);
+            }
+          }
+          vmPopTempRef(vm); // list.
+          return VAR_OBJ(list);
+        }
+
+      } // switch
     } break;
 
     case OBJ_RANGE: {
@@ -2070,6 +2406,9 @@ Var varGetAttrib(PKVM* vm, Var on, String* attrib) {
         case CHECK_HASH("instance", 0xb86d992):
           if (IS_UNDEF(mb->instance)) return VAR_NULL;
           return mb->instance;
+
+        case CHECK_HASH("arity", 0x3e96bd7a):
+          return VAR_NUM((double)(mb->method->fn->arity));
       }
 
     } break;
@@ -2087,6 +2426,9 @@ Var varGetAttrib(PKVM* vm, Var on, String* attrib) {
 
         case CHECK_HASH("function", 0x9ed64249):
           return VAR_OBJ(fb->closure);
+
+        case CHECK_HASH("error", 0x21918751):
+          return fb->error;
       }
     } break;
 
@@ -2487,4 +2829,94 @@ void varsetSubscript(PKVM* vm, Var on, Var key, Var value) {
   VM_SET_ERROR(vm, stringFormat(vm, "$ type is not subscriptable.",
                varTypeName(on)));
   return;
+}
+
+bool varIterate(PKVM* vm, Var seq, Var* iterator, Var* value) {
+  Object* obj = AS_OBJ(seq);
+  switch (obj->type) {
+    case OBJ_STRING: {
+      if (IS_NULL(*iterator)) *iterator = VAR_NUM((double) 0);
+      uint32_t iter = (uint32_t) AS_NUM(*iterator);
+
+      // TODO: Need to consider utf8.
+      String* str = ((String*)obj);
+      if (iter >= str->length) return false;
+
+      // TODO: vm's char (and reusable) strings.
+      *value = VAR_OBJ(newStringLength(vm, str->data + iter, 1));
+      *iterator = VAR_NUM((double)iter + 1);
+      return true;
+    }
+
+    case OBJ_LIST: {
+      if (IS_NULL(*iterator)) *iterator = VAR_NUM((double) 0);
+      uint32_t iter = (uint32_t) AS_NUM(*iterator);
+
+      pkVarBuffer* elems = &((List*)obj)->elements;
+      if (iter >= elems->count) return false;
+      *value = elems->data[iter];
+      *iterator = VAR_NUM((double)iter + 1);
+      return true;
+    }
+
+    case OBJ_MAP: {
+      if (IS_NULL(*iterator)) *iterator = VAR_NUM((double) 0);
+      uint32_t iter = (uint32_t) AS_NUM(*iterator);
+
+      Map* map = (Map*)obj;
+      if (map->entries == NULL) return false;
+      MapEntry* e = map->entries + iter;
+      for (; iter < map->capacity; iter++, e++) {
+        if (!IS_UNDEF(e->key)) break;
+      }
+      if (iter >= map->capacity) return false;
+
+      *value = map->entries[iter].key;
+      *iterator = VAR_NUM((double)iter + 1);
+      return true;
+    }
+
+    case OBJ_RANGE: {
+      if (IS_NULL(*iterator)) *iterator = VAR_NUM((double) 0);
+      double iter = AS_NUM(*iterator);
+      double from = ((Range*)obj)->from;
+      double to = ((Range*)obj)->to;
+      if (from == to) return false;
+
+      double current;
+      if (from <= to) { //< Straight range.
+        current = from + iter;
+      } else {          //< Reversed range.
+        current = from - iter;
+      }
+      if (current == to) return false;
+      *value = VAR_NUM(current);
+      *iterator = VAR_NUM(iter + 1);
+      return true;
+    }
+
+    case OBJ_INST: {
+      for(;;) {
+        if (!_callBinaryOpMethod(vm, seq, *iterator, LITS__next, iterator)) break;
+        if (IS_NULL(*iterator)) return false;
+
+        if (!_callBinaryOpMethod(vm, seq, *iterator, LITS__value, value)) break;
+        return true;
+      }
+      goto _default;
+    }
+
+    case OBJ_FIBER:
+    case OBJ_CLOSURE:
+    case OBJ_MODULE:
+    case OBJ_FUNC:
+    case OBJ_METHOD_BIND:
+    case OBJ_UPVALUE:
+    case OBJ_CLASS:
+
+    default:
+    _default:
+      VM_SET_ERROR(vm, stringFormat(vm, "$ is not iterable.", varTypeName(seq)));
+  }
+  return false;
 }
