@@ -30,7 +30,7 @@ extern "C" {
 // String representation of the version.
 #define PK_VERSION_STRING "0.1.0"
 
-// Pocketlang visibility macros. define PK_DLL for using pocketlang as a 
+// Pocketlang visibility macros. define PK_DLL for using pocketlang as a
 // shared library and define PK_COMPILE to export symbols when compiling the
 // pocketlang it self as a shared library.
 
@@ -264,7 +264,7 @@ PK_PUBLIC void pkRegisterBuiltinFn(PKVM* vm, const char* name, pkNativeFn fn,
 // the last character of the path **must** be a path seperator '/' or '\\'.
 PK_PUBLIC void pkAddSearchPath(PKVM* vm, const char* path);
 
-// Invoke pocketlang's allocator directly.  This function should be called 
+// Invoke pocketlang's allocator directly.  This function should be called
 // when the host application want to send strings to the PKVM that are claimed
 // by the VM once the caller returned it. For other uses you **should** call
 // pkRealloc with [size] 0 to cleanup, otherwise there will be a memory leak.
@@ -475,6 +475,14 @@ PK_PUBLIC void pkNewList(PKVM* vm, int index);
 // Create a new Map object and place it at [index] slot.
 PK_PUBLIC void pkNewMap(PKVM* vm, int index);
 
+// Get an value of [key] from [map] and place it at the [ret] slot.
+// Returns false if [key] is not found.
+PK_PUBLIC bool pkMapGet(PKVM* vm, int map, int key, int ret);
+
+// Set [key] and [value] pair to [map].
+// Returns false if key is not hashable.
+PK_PUBLIC bool pkMapSet(PKVM* vm, int map, int key, int value);
+
 // Insert [value] to the [list] at the [index], if the index is less than zero,
 // it'll count from backwards. ie. insert[-1] == insert[list.length].
 // Note that slot [list] must be a valid list otherwise it'll fail an
@@ -484,6 +492,14 @@ PK_PUBLIC bool pkListInsert(PKVM* vm, int list, int32_t index, int value);
 // Pop an element from [list] at [index] and place it at the [popped] slot, if
 // [popped] is negative, the popped value will be ignored.
 PK_PUBLIC bool pkListPop(PKVM* vm, int list, int32_t index, int popped);
+
+// Get an element from [list] at [index] and place it at the [ret] slot.
+// If the index is less than zero, it'll count from backwards.
+PK_PUBLIC bool pkListGet(PKVM* vm, int list, int32_t index, int ret);
+
+// Set [value] to the [list] the [index].
+// If the index is less than zero, it'll count from backwards.
+PK_PUBLIC bool pkListSet(PKVM* vm, int list, int32_t index, int value);
 
 // Returns the length of the list at the [list] slot, it the slot isn't a list
 // an assertion will fail.

@@ -920,6 +920,43 @@ void pkNewMap(PKVM* vm, int index) {
   SET_SLOT(index, VAR_OBJ(newMap(vm)));
 }
 
+bool pkMapGet(PKVM* vm, int map, int key, int ret) {
+  CHECK_FIBER_EXISTS(vm);
+  VALIDATE_SLOT_INDEX(map);
+  VALIDATE_SLOT_INDEX(key);
+  VALIDATE_SLOT_INDEX(ret);
+
+  ASSERT(IS_OBJ_TYPE(SLOT(map), OBJ_MAP), "Slot value wasn't a Map");
+  Map* m = (Map*) AS_OBJ(SLOT(map));
+  Var k = SLOT(key);
+
+  if (!IS_OBJ(k) || isObjectHashable(AS_OBJ(k)->type)) {
+    Var value = mapGet(m, k);
+    if (!IS_UNDEF(value)) {
+      SET_SLOT(ret, value);
+      return true;
+    }
+  }
+  return false;
+}
+
+bool pkMapSet(PKVM* vm, int map, int key, int value) {
+  CHECK_FIBER_EXISTS(vm);
+  VALIDATE_SLOT_INDEX(map);
+  VALIDATE_SLOT_INDEX(key);
+  VALIDATE_SLOT_INDEX(value);
+
+  ASSERT(IS_OBJ_TYPE(SLOT(map), OBJ_MAP), "Slot value wasn't a Map");
+  Map* m = (Map*) AS_OBJ(SLOT(map));
+  Var k = SLOT(key);
+
+  if (!IS_OBJ(k) || isObjectHashable(AS_OBJ(k)->type)) {
+    mapSet(vm, m, k, SLOT(value));
+    return true;
+  }
+  return false;
+}
+
 bool pkListInsert(PKVM* vm, int list, int32_t index, int value) {
   CHECK_FIBER_EXISTS(vm);
   VALIDATE_SLOT_INDEX(list);
@@ -954,6 +991,42 @@ bool pkListPop(PKVM* vm, int list, int32_t index, int popped) {
 
   Var p = listRemoveAt(vm, l, index);
   if (popped >= 0) SET_SLOT(popped, p);
+  return true;
+}
+
+bool pkListGet(PKVM* vm, int list, int32_t index, int ret) {
+  CHECK_FIBER_EXISTS(vm);
+  VALIDATE_SLOT_INDEX(list);
+  VALIDATE_SLOT_INDEX(ret);
+
+  ASSERT(IS_OBJ_TYPE(SLOT(list), OBJ_LIST), "Slot value wasn't a List");
+  List* l = (List*) AS_OBJ(SLOT(list));
+  if (index < 0) index += l->elements.count;
+
+  if (index < 0 || (uint32_t) index > l->elements.count) {
+    VM_SET_ERROR(vm, newString(vm, "Index out of bounds."));
+    return false;
+  }
+
+  SET_SLOT(ret, l->elements.data[index]);
+  return true;
+}
+
+bool pkListSet(PKVM* vm, int list, int32_t index, int value) {
+  CHECK_FIBER_EXISTS(vm);
+  VALIDATE_SLOT_INDEX(list);
+  VALIDATE_SLOT_INDEX(value);
+
+  ASSERT(IS_OBJ_TYPE(SLOT(list), OBJ_LIST), "Slot value wasn't a List");
+  List* l = (List*) AS_OBJ(SLOT(list));
+  if (index < 0) index += l->elements.count;
+
+  if (index < 0 || (uint32_t) index > l->elements.count) {
+    VM_SET_ERROR(vm, newString(vm, "Index out of bounds."));
+    return false;
+  }
+
+  l->elements.data[index] = SLOT(value);
   return true;
 }
 

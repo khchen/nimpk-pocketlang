@@ -58,8 +58,12 @@ typedef bool (*pkNewInstance_t)(PKVM*, int, int, int, int);
 typedef void (*pkNewRange_t)(PKVM*, int, double, double);
 typedef void (*pkNewList_t)(PKVM*, int);
 typedef void (*pkNewMap_t)(PKVM*, int);
+typedef bool (*pkMapGet_t)(PKVM*, int, int, int);
+typedef bool (*pkMapSet_t)(PKVM*, int, int, int);
 typedef bool (*pkListInsert_t)(PKVM*, int, int32_t, int);
 typedef bool (*pkListPop_t)(PKVM*, int, int32_t, int);
+typedef bool (*pkListGet_t)(PKVM*, int, int32_t, int);
+typedef bool (*pkListSet_t)(PKVM*, int, int32_t, int);
 typedef uint32_t (*pkListLength_t)(PKVM*, int);
 typedef bool (*pkCallFunction_t)(PKVM*, int, int, int, int);
 typedef bool (*pkCallMethod_t)(PKVM*, int, const char*, int, int, int);
@@ -118,8 +122,12 @@ typedef struct {
   pkNewRange_t pkNewRange_ptr;
   pkNewList_t pkNewList_ptr;
   pkNewMap_t pkNewMap_ptr;
+  pkMapGet_t pkMapGet_ptr;
+  pkMapSet_t pkMapSet_ptr;
   pkListInsert_t pkListInsert_ptr;
   pkListPop_t pkListPop_ptr;
+  pkListGet_t pkListGet_ptr;
+  pkListSet_t pkListSet_ptr;
   pkListLength_t pkListLength_ptr;
   pkCallFunction_t pkCallFunction_ptr;
   pkCallMethod_t pkCallMethod_ptr;
@@ -181,8 +189,12 @@ PK_EXPORT void pkInitApi(PkNativeApi* api) {
   pk_api.pkNewRange_ptr = api->pkNewRange_ptr;
   pk_api.pkNewList_ptr = api->pkNewList_ptr;
   pk_api.pkNewMap_ptr = api->pkNewMap_ptr;
+  pk_api.pkMapGet_ptr = api->pkMapGet_ptr;
+  pk_api.pkMapSet_ptr = api->pkMapSet_ptr;
   pk_api.pkListInsert_ptr = api->pkListInsert_ptr;
   pk_api.pkListPop_ptr = api->pkListPop_ptr;
+  pk_api.pkListGet_ptr = api->pkListGet_ptr;
+  pk_api.pkListSet_ptr = api->pkListSet_ptr;
   pk_api.pkListLength_ptr = api->pkListLength_ptr;
   pk_api.pkCallFunction_ptr = api->pkCallFunction_ptr;
   pk_api.pkCallMethod_ptr = api->pkCallMethod_ptr;
@@ -391,12 +403,28 @@ void pkNewMap(PKVM* vm, int index) {
   pk_api.pkNewMap_ptr(vm, index);
 }
 
+bool pkMapGet(PKVM* vm, int map, int key, int ret) {
+  return pk_api.pkMapGet_ptr(vm, map, key, ret);
+}
+
+bool pkMapSet(PKVM* vm, int map, int key, int value) {
+  return pk_api.pkMapSet_ptr(vm, map, key, value);
+}
+
 bool pkListInsert(PKVM* vm, int list, int32_t index, int value) {
   return pk_api.pkListInsert_ptr(vm, list, index, value);
 }
 
 bool pkListPop(PKVM* vm, int list, int32_t index, int popped) {
   return pk_api.pkListPop_ptr(vm, list, index, popped);
+}
+
+bool pkListGet(PKVM* vm, int list, int32_t index, int ret) {
+  return pk_api.pkListGet_ptr(vm, list, index, ret);
+}
+
+bool pkListSet(PKVM* vm, int list, int32_t index, int value) {
+  return pk_api.pkListSet_ptr(vm, list, index, value);
 }
 
 uint32_t pkListLength(PKVM* vm, int list) {
