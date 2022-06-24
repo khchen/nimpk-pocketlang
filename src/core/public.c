@@ -826,6 +826,37 @@ void pkSetSlotHandle(PKVM* vm, int index, PkHandle* handle) {
   SET_SLOT(index, handle->value);
 }
 
+bool pkGetGlobal(PKVM* vm, int index, const char* name) {
+  CHECK_FIBER_EXISTS(vm);
+  VALIDATE_SLOT_INDEX(index);
+
+  // Don't allow to get intrenal / special objects.
+  // TODO: Is this necessary?
+  if (name[0] == SPECIAL_NAME_CHAR) {
+    return false;
+  }
+
+  for (uint32_t i = 0; i < vm->modules->capacity; i++) {
+    if (!IS_UNDEF(vm->modules->entries[i].key)) {
+      Var entry = vm->modules->entries[i].value;
+      ASSERT(IS_OBJ_TYPE(entry, OBJ_MODULE), OOPS);
+      Module* module = (Module*) AS_OBJ(entry);
+      ASSERT(module->name != NULL, OOPS);
+
+      if (strcmp(module->name->data, IMPLICIT_MAIN_NAME) == 0) {
+        int i = moduleGetGlobalIndex(module, name, (uint32_t) strlen(name));
+        if (i != -1) {
+          ASSERT_INDEX((uint32_t)i, module->globals.count);
+          SET_SLOT(index, module->globals.data[i]);
+          return true;
+        }
+        break;
+      }
+    }
+  }
+  return false;
+}
+
 uint32_t pkGetSlotHash(PKVM* vm, int index) {
   CHECK_FIBER_EXISTS(vm);
   VALIDATE_SLOT_INDEX(index);
