@@ -19,6 +19,7 @@ void registerModuleOS(PKVM* vm);
 void registerModuleJson(PKVM* vm);
 void registerModuleDummy(PKVM* vm);
 void registerModuleTerm(PKVM* vm);
+void registerModuleRe(PKVM* vm);
 
 void cleanupModuleTerm(PKVM* vm);
 
@@ -33,7 +34,7 @@ void registerLibs(PKVM* vm) {
   registerModuleJson(vm);
   registerModuleDummy(vm);
   registerModuleTerm(vm);
-
+  registerModuleRe(vm);
 }
 
 // Cleanup the modules.
