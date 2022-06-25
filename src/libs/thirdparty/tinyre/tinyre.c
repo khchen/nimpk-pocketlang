@@ -54,7 +54,7 @@ const char* tre_err(int err_code) {
     }
 }
 
-tre_Pattern* tre_compile(char* s, int flag, int* err_code) {
+tre_Pattern* tre_compile(const char* s, int flag, int* err_code) {
     int ret;
     tre_Pattern* groups;
     tre_Lexer* lexer;
