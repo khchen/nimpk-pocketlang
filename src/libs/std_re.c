@@ -64,6 +64,28 @@ void _matchDelete(PKVM* vm, void* ptr) {
   pkRealloc(vm, ptr, 0);
 }
 
+DEF(_patternInit,
+  "re.Pattern._init()",
+  "Initialize a Pattern instance.") {
+  pkReserveSlots(vm, 2);
+  pkPlaceSelf(vm, 0);
+  pkSetSlotBool(vm, 1, false);
+  pkSetAttribute(vm, 0, "ok", 1);
+  pkSetSlotNull(vm, 1);
+  pkSetAttribute(vm, 0, "error", 1);
+}
+
+DEF(_matchInit,
+  "re.Match._init()",
+  "Initialize a Match instance.") {
+  pkReserveSlots(vm, 2);
+  pkPlaceSelf(vm, 0);
+  pkSetSlotBool(vm, 1, false);
+  pkSetAttribute(vm, 0, "ok", 1);
+  pkSetSlotNull(vm, 1);
+  pkSetAttribute(vm, 0, "error", 1);
+}
+
 DEF(_reCompile,
   "compile(pattern:String [, flag:Number]): Pattern",
   "Compile regex pattern.") {
@@ -82,21 +104,40 @@ DEF(_reCompile,
 }
 
 DEF(_reMatch,
-  "match(pattern:Pattern, input:String): Match",
-  "Match regex pattern.") {
+  "match(pattern:String, input:String): Match",
+  "Return a corresponding match object.") {
 
-  pkReserveSlots(vm, 10);
   if (!pkImportModule(vm, "re", 0)) return;           // slots[0] = re
-  if (!pkGetAttribute(vm, 0, "Pattern", 0)) return;   // slots[0] = Pattern
+  if (!pkGetAttribute(vm, 0, "Match", 0)) return;     // slots[0] = Match
+  if (!pkNewInstance(vm, 0, 0, 0, 0)) return;         // slots[0] = Match()
 
-// PK_PUBLIC bool pkIsSlotInstanceOf(PKVM* vm, int inst, int cls, bool* val);
+  int err_code;
+  tre_Pattern* tp = tre_compile("1(2)[3]", FLAG_DOTALL, &err_code);
+  if (tp) {
+    tre_Match* tm = tre_match(tp, "123", 5000);
+    if (tm->groups) {
+      printf("got some matchec\n");
 
-  pkGetClass(vm, 1, 0);    
-  bool isPattern = false;
 
-  if (pkIsSlotInstanceOf(vm, 1, 0, &isPattern) && isPattern) {
-    printf("yes it is pattern\n");
+      Match* match = (Match*) pkGetSlotNativeInstance(vm, 0);
+      if (match) {
+        match->tm = tm;
+      }
+    }
+    tre_pattern_free(tp);
   }
+
+
+  // pkReserveSlots(vm, 10);
+  // if (!pkImportModule(vm, "re", 0)) return;           // slots[0] = re
+  // if (!pkGetAttribute(vm, 0, "Pattern", 0)) return;   // slots[0] = Pattern
+
+  // pkGetClass(vm, 1, 0);    
+  // bool isPattern = false;
+
+  // if (pkIsSlotInstanceOf(vm, 1, 0, &isPattern) && isPattern) {
+  //   printf("yes it is pattern\n");
+  // }
 
 
   // Pattern* pattern = (Pattern*) pkGetSlotNativeInstance(vm, 0);
@@ -135,6 +176,9 @@ void registerModuleRe(PKVM* vm) {
 
   PkHandle* cls_match = pkNewClass(vm, "Match", NULL, re,
     _matchNew, _matchDelete, NULL);
+
+  ADD_METHOD(cls_pattern, "_init", _patternInit, 0);
+  ADD_METHOD(cls_match, "_init", _matchInit, 0);
 
   pkReleaseHandle(vm, cls_pattern);
   pkReleaseHandle(vm, cls_match);
