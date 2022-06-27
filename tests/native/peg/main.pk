@@ -1,0 +1,13 @@
+import peg
+
+grammar = peg.Grammar(r'entry = i"hello\nworld";')
+source = peg.Source("Hello\nWORLD", "entry")
+
+Peg = peg.Grammar
+
+parser = Peg(r'entry = i"hello\nworld";')
+root = parser.parse("Hello\nWORLD", "enty")
+
+
+peg.hello()
+print(peg)
