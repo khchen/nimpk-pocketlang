@@ -1,0 +1,79 @@
+from peg import Grammar
+
+def debug(node, indent)
+  result = ""
+  while node
+    result += " " * indent +
+      "{name: ${node.name}, text: '${node.text}'}\n"
+
+    result += debug(node.head, indent + 2)
+    node = node.next
+  end
+  return result
+end
+
+fn
+  grammar = Grammar(r'
+    expression = term;
+
+    term = factor ((add / minus) factor)*;
+
+    factor = unary ((mul / div) unary)*;
+
+    unary = primary / (add / minus)? unary;
+
+    primary = integer / "(" term ")";
+
+    integer = [0-9]+;
+
+    add = "+";
+    minus = "-";
+    mul = "*";
+    div = "/";
+
+    @spaced @lifted
+    space = " " / "\t" / "\n";
+  ')
+
+  eval = fn(node)
+    if node.name in ["primary", "expression"]
+      return eval(node.head)
+
+    elif node.name in ["term", "factor"]
+      result = 0
+      node = node.head
+      while node
+        if node.name == "add" then node = node.next; result += eval(node)
+        elif node.name == "minus" then node = node.next; result -= eval(node)
+        elif node.name == "mul" then node = node.next; result *= eval(node)
+        elif node.name == "div" then node = node.next; result /= eval(node)
+        else result = eval(node) end
+        node = node.next
+      end
+      return result
+
+    elif node.name == "unary"
+      if node.head.name == "minus"
+        return -eval(node.tail)
+      else
+        return eval(node.tail)
+      end
+
+    elif node.name == "integer"
+      return Number(node.text)
+    end
+  end
+
+  result = grammar.parse("", "expression")
+  # result = grammar.parse("(-1 + 4/2*3 - 1) * (5 + 6) ", "expression")
+  # print(debug(result.root, 0))
+  # print(eval(result.root))
+
+  # result = grammar.parse("1--+1", "expression")
+  # print(debug(result.root, 0))
+  # print(eval(result.root))
+
+  # result = grammar.parse("1 * (2 + 3)", "expression")
+  # print(debug(result.root, 0))
+
+end ()

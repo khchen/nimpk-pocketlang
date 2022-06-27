@@ -1,0 +1,74 @@
+from nimpeg import Grammar
+
+def debug(node, indent)
+  result = ""
+  while node
+    result += " " * indent +
+      "{name: ${node.name}, text: '${node.text}'}\n"
+
+    result += debug(node.head, indent + 2)
+    node = node.next
+  end
+  return result
+end
+
+grammar = Grammar(r'
+  \skip(\s*)
+
+  expression <- term !.
+
+  term <- factor ((add / minus) factor)*
+
+  factor <- unary ((mul / div) unary)*
+
+  unary <- primary / (add / minus)? unary
+
+  primary <- integer / "(" term ")"
+
+  integer <- \d+
+
+  add <- "+"
+  minus <- "-"
+  mul <- "*"
+  div <- "/"
+')
+
+def eval(node)
+  if node.name in ["@root", "primary"]
+    return eval(node.head)
+
+  elif node.name in ["term", "factor"]
+    result = 0
+    node = node.head
+    while node
+      if node.name == "add" then node = node.next; result += eval(node)
+      elif node.name == "minus" then node = node.next; result -= eval(node)
+      elif node.name == "mul" then node = node.next; result *= eval(node)
+      elif node.name == "div" then node = node.next; result /= eval(node)
+      else result = eval(node) end
+      node = node.next
+    end
+    return result
+
+  elif node.name == "unary"
+    if node.head.name == "minus"
+      return -eval(node.tail)
+    else
+      return eval(node.tail)
+    end
+
+  elif node.name == "integer"
+    return Number(node.text)
+  end
+
+end
+
+node = grammar.parse("1+2*3")
+print(debug(node, 0))
+print(eval(node))
+
+node = grammar.parse("(-1 + 4/2*3 - 1) * (5 + 6) ")
+print(debug(node, 0))
+print(eval(node))
+
+

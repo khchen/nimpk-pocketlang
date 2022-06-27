@@ -1,0 +1,24 @@
+from peg import Grammar
+
+grammar = Grammar("a = .")
+assert(grammar.error)
+assert(grammar.error_code)
+
+grammar = Grammar("a = .;")
+assert(!grammar.error)
+assert(!grammar.error_code)
+
+result = grammar.parse("", "")
+assert(result.error == "ValueError")
+assert(result.error_code)
+assert(!result.root)
+
+result = grammar.parse("", "a")
+assert(result.error == "MatchError")
+assert(result.error_code)
+assert(!result.root)
+
+result = grammar.parse("a", "a")
+assert(!result.error)
+assert(!result.error_code)
+assert(result.root)

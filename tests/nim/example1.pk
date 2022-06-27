@@ -1,0 +1,38 @@
+from nimpeg import Grammar
+
+def debug(node, indent)
+  result = ""
+  while node
+    result += " " * indent +
+      "{name: ${node.name}, text: '${node.text}'}\n"
+
+    result += debug(node.head, indent + 2)
+    node = node.next
+  end
+  return result
+end
+
+def collect(node, name)
+  result = []
+  while node
+    if name == node.name
+      result.append(node.text)
+    end
+    result += collect(node.head, name)
+    node = node.next
+  end
+  return result
+end
+
+fn
+  grammar = Grammar(r'
+    start <- (space* word)*
+    word <- \w+
+    space <- \s+
+  ')
+
+  node = grammar.parse("A quick fox jump over the lazy dog")
+
+  print(debug(node, 0))
+  print(collect(node, "word"))
+end ()

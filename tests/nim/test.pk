@@ -1,0 +1,125 @@
+# import mylib
+
+# print(mylib.hello())
+
+import nimpeg
+import lang
+from nimpeg import Grammar
+
+def test(f)
+  for i in 0..100000000
+    f()
+    lang.gc()
+  end
+end
+
+def debug(node, indent)
+  result = ""
+  while node
+    result += " " * indent +
+      "{name: ${node.name}, text: ${node.text}}\n"
+
+    result += debug(node.head, indent + 2)
+    node = node.next
+  end
+  return result
+end
+
+
+g = Grammar(r"{\d}{\d}{\d}")
+print(g.startsWith("456abc"))
+print(g.startsWith("abc456"))
+print(g.endsWith("456abc"))
+print(g.endsWith("abc456"))
+print(g.findAll("abc456def123"))
+
+print(g.split("abc456def123ghi"))
+
+g = Grammar(r"{\ident}'='{\ident}")
+print(g.replacef("var1=key; var2=key2", r"$1<-$2$2"))
+
+# g = Grammar(r"{\d}{\d}")
+
+# print(g.replace("a1234567"))
+# print(g.replace("a1234567", "by"))
+# print(g.replace("a1234567", fn (m, l)
+#   return l[1] + l[0]
+# end))
+
+# print(g.findAll("\x001\x002\x003"))
+
+
+
+
+# help(g.match)
+
+# n = g.parse("123\x00456")
+# print(n.name)
+
+
+# print(debug(n, 0))
+
+# print(n.head.name)
+# print(n.head.next.name)
+
+
+# test fn
+#   n = g.parse("123")
+# end
+
+
+
+# captures = []
+# print(g.matchLen("123456", captures, 2))
+# print(captures)
+
+# print(g.find("123456789", captures))
+# print(captures)
+
+# print(g.findAll("aaaaaa", 0))
+# txt = "abc1234"
+
+# print(g.findBounds(txt, captures))
+# print(captures)
+# print(txt[g.findBounds(txt)])
+
+
+
+# print(g.match("123"))
+
+# captures = []
+# print(g.match("123456", captures, -1))
+# print(captures)
+
+
+# print(g.match(" 123"))
+
+
+# g = Grammar(r"
+#   {\ident} \s* '=' \s* {.*}
+# ")
+
+# print(g)
+
+# def test
+#   g = Grammar(r"
+#       Expr    <- Sum !.
+#       Sum     <- Product ((Add / Minus)Product)*
+#       Product <- Value ((Mul / Div)Value)*
+#       Value   <- Integer / '(' Expr ')'
+
+#       Add     <- '+'
+#       Minus   <- '-'
+#       Mul     <- '*'
+#       Div     <- '/'
+#       Integer <- [0-9]+
+#   ")
+#   print(g.match("1+2"))
+# end
+
+# for i in 0..1000000
+#   test()
+#   lang.gc()
+# end
+
+# print(g2)

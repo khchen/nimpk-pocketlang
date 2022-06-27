@@ -1,0 +1,15 @@
+{.used.}
+{.compile("pknative.c", "-I../src/include").}
+
+import winim/lean
+
+proc NimMain() {.cdecl, importc.}
+
+proc DllMain(hinstDLL: HINSTANCE, fdwReason: DWORD, lpvReserved: LPVOID) : BOOL {.stdcall, exportc, dynlib.} =
+  NimMain()
+  return true
+
+proc init(api: pointer) {.cdecl, importc.}
+
+proc pkInitApi(api: pointer) {.cdecl, exportc, dynlib.} =
+  init(api)

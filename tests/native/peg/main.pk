@@ -1,0 +1,37 @@
+import lang, io
+
+from peg import Grammar
+
+grammar = Grammar(r'
+  expression = term;
+  term = factor ((add / minus) factor)*;
+  factor = unary ((mul / div) unary)*;
+  unary = primary / (add / minus)? unary;
+  primary = integer / "(" term ")";
+  integer = [0-9]+;
+  add = "+";
+  minus = "-";
+  mul = "*";
+  div = "/";
+  @spaced @lifted
+  space = " " / "\t" / "\n";
+')
+
+result = grammar.parse("abcde", "expression")
+print(result.error_code)
+print(result.error)
+print(result.root)
+
+# fn
+#   grammar = Grammar(r'
+#     start = .*;
+#   ')
+#   if grammar.error then return end
+
+#   result = grammar.parse("", "start")
+#   print(result.error_code)
+#   print(result.error)
+#   print(result.root)
+
+
+# end ()
