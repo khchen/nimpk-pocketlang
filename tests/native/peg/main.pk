@@ -1,13 +1,48 @@
+# import peg
+import lang
+
+# from peg import Grammar
 import peg
 
-grammar = peg.Grammar(r'entry = i"hello\nworld";')
-source = peg.Source("Hello\nWORLD", "entry")
+# g = Grammar(r'entry = i"hello\nworld";')
+g = peg.Grammar(r'entry = i"hello\nworld";')
+s = g.parse("Hello\nWORLD", "entry")
 
-Peg = peg.Grammar
-
-parser = Peg(r'entry = i"hello\nworld";')
-root = parser.parse("Hello\nWORLD", "enty")
+print(s.source)
 
 
-peg.hello()
-print(peg)
+# g = null
+# s = null
+
+# lang.gc()
+# print(n.source)
+
+
+
+
+
+# from peg import Peg
+
+# parser = Peg(r'entry = i"hello\nworld";')
+# result.root is peg.Node
+# result.source
+# result.entry
+
+# # grammar = peg.Grammar(r'entry = i"hello\nworld";')
+# # source = peg.Source("Hello\nWORLD", "entry")
+
+
+
+# source.root is peg.Node
+
+
+# Peg = peg.Grammar
+# parser = Peg(r'
+#   start = line;
+#   line = (!"\n" .)+;
+# ')
+
+# root = parser.parse("Hello\nWORLD", "start")
+
+# # peg.hello()
+# # print(peg)
