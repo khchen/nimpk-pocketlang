@@ -30,7 +30,7 @@ extern "C" {
 // String representation of the version.
 #define PK_VERSION_STRING "0.1.0"
 
-// Pocketlang visibility macros. define PK_DLL for using pocketlang as a 
+// Pocketlang visibility macros. define PK_DLL for using pocketlang as a
 // shared library and define PK_COMPILE to export symbols when compiling the
 // pocketlang it self as a shared library.
 
@@ -259,12 +259,18 @@ PK_PUBLIC void* pkGetUserData(const PKVM* vm);
 PK_PUBLIC void pkRegisterBuiltinFn(PKVM* vm, const char* name, pkNativeFn fn,
                                    int arity, const char* docstring);
 
+// Get builtin function with the given [name] at slot [index].
+PK_PUBLIC bool pkGetBuiltinFn(PKVM* vm, const char* name, int index);
+
+// Get builtin class with the given [name] at slot [index].
+PK_PUBLIC bool pkGetBuildinClass(PKVM* vm, const char* name, int index);
+
 // Adds a new search paht to the VM, the path will be appended to the list of
 // search paths. Search path orders are the same as the registered order.
 // the last character of the path **must** be a path seperator '/' or '\\'.
 PK_PUBLIC void pkAddSearchPath(PKVM* vm, const char* path);
 
-// Invoke pocketlang's allocator directly.  This function should be called 
+// Invoke pocketlang's allocator directly.  This function should be called
 // when the host application want to send strings to the PKVM that are claimed
 // by the VM once the caller returned it. For other uses you **should** call
 // pkRealloc with [size] 0 to cleanup, otherwise there will be a memory leak.
@@ -316,6 +322,9 @@ PK_PUBLIC void pkClassAddMethod(PKVM* vm, PkHandle* cls,
 PK_PUBLIC void pkModuleAddSource(PKVM* vm, PkHandle* module,
                                  const char* source);
 
+// Force to initialize an uninitialized module.
+PK_PUBLIC bool pkModuleInitialize(PKVM* vm, PkHandle* handle);
+
 // Run the source string. The [source] is expected to be valid till this
 // function returns.
 PK_PUBLIC PkResult pkRunString(PKVM* vm, const char* source);
@@ -340,6 +349,12 @@ PK_PUBLIC void pkSetRuntimeError(PKVM* vm, const char* message);
 
 // Set a runtime error with C formated string.
 PK_PUBLIC void pkSetRuntimeErrorFmt(PKVM* vm, const char* fmt, ...);
+
+// Set a runtime error object at slot.
+PK_PUBLIC void pkSetRuntimeErrorObj(PKVM* vm, int slot);
+
+// Get the runtime error of VM at [slot].
+PK_PUBLIC void pkGetRuntimeError(PKVM* vm, int slot);
 
 // Returns native [self] of the current method as a void*.
 PK_PUBLIC void* pkGetSelf(const PKVM* vm);
@@ -489,6 +504,12 @@ PK_PUBLIC bool pkListPop(PKVM* vm, int list, int32_t index, int popped);
 // an assertion will fail.
 PK_PUBLIC uint32_t pkListLength(PKVM* vm, int list);
 
+// Returns the subscript value (ie. on[key]).
+PK_PUBLIC bool pkGetSubscript(PKVM* vm, int on, int key, int ret);
+
+// Set subscript [value] with the [key] (ie. on[key] = value).
+PK_PUBLIC bool pkSetSubscript(PKVM* vm, int on, int key, int value);
+
 // Calls a function at the [fn] slot, with [argc] argument where [argv] is the
 // slot of the first argument. [ret] is the slot index of the return value. if
 // [ret] < 0 the return value will be discarded.
@@ -514,6 +535,10 @@ PK_PUBLIC bool pkSetAttribute(PKVM* vm, int instance,
 // sepearation should be '/'. Example: to import module "foo.bar" the [path]
 // should be "foo/bar". On failure, it'll set an error and return false.
 PK_PUBLIC bool pkImportModule(PKVM* vm, const char* path, int index);
+
+// Returns the main module at the [index] slot.
+// Returns false if main module don't exist.
+PK_PUBLIC bool pkGetMainModule(PKVM* vm, int index);
 
 #ifdef __cplusplus
 } // extern "C"
