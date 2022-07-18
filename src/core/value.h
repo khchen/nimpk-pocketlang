@@ -517,6 +517,16 @@ struct Fiber {
   String* error;
 };
 
+typedef enum {
+  METHOD_INIT,
+  METHOD_STR,
+  METHOD_REPR,
+  METHOD_GETTER,
+  METHOD_SETTER,
+  METHOD_CALL,
+  MAX_MAGIC_METHODS,
+} MagicMethod;
+
 struct Class {
   Object _super;
 
@@ -538,7 +548,8 @@ struct Class {
   // builtin type's class.
   PkVarType class_of;
 
-  Closure* ctor; //< The constructor function.
+  // Magic methods, ctor/getter/setter etc.
+  Closure* magic_methods[MAX_MAGIC_METHODS];
 
   // A buffer of methods of the class.
   pkClosureBuffer methods;
@@ -550,7 +561,6 @@ struct Class {
   // For script/ builtin types it'll be NULL.
   pkNewInstanceFn new_fn;
   pkDeleteInstanceFn delete_fn;
-
 };
 
 typedef struct {
@@ -732,6 +742,9 @@ void mapClear(PKVM* vm, Map* self);
 // Remove the [key] from the map. If the key exists return it's value
 // otherwise return VAR_UNDEFINED.
 Var mapRemoveKey(PKVM* vm, Map* self, Var key);
+
+// Duplicate a map.
+Map* mapDup(PKVM* vm, Map* self);
 
 // Returns true if the fiber has error, and if it has any the fiber cannot be
 // resumed anymore.
