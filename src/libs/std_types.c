@@ -307,6 +307,84 @@ DEF(_vectorRepr,
   pkSetSlotStringFmt(vm, 0, "[%g, %g, %g]", vec->x, vec->y, vec->z);
 }
 
+#define ARG(n) (vm->fiber->ret[n])
+#define RESET_ERROR vm->fiber->error = NULL;
+DEF(_variadicInit,
+  "types.Variadic._init()", "") {
+
+  int argc = pkGetArgc(vm);
+  if (!pkCheckArgcRange(vm, argc, 0, 1)) return;
+  if (argc == 0) return;
+
+  do {
+    PkVarType type = pkGetSlotType(vm, 1);
+    if (type != PK_CLOSURE) break;
+
+    if (!pkGetAttribute(vm, 1, "arity", 0)) break;
+    if (pkGetSlotNumber(vm, 0) != (double)1) break;
+
+    pkPlaceSelf(vm, 0);
+    pkSetAttribute(vm, 0, "_function", 1);
+    return;
+
+  } while (false);
+  pkSetRuntimeError(vm, "Expected a function with one argument.");
+}
+
+DEF(_variadicCall,
+  "types.Variadic._call()", "") {
+  int argc = pkGetArgc(vm);
+  int nlist = argc + 1;
+  int ntmp = argc + 2;
+  pkReserveSlots(vm, ntmp + 1);
+
+  pkPlaceSelf(vm, 0);
+  pkNewList(vm, nlist);
+  for (int i = 1; i <= argc; i++) {
+    pkListInsert(vm, nlist, -1, i);
+  }
+
+  if (pkGetAttribute(vm, 0, "_trampoline", ntmp)) {
+    String* name = AS_STRING(ARG(ntmp));
+    pkCallMethod(vm, 0, name->data, 1, nlist, 0);
+    return;
+  }
+  RESET_ERROR;
+  if (pkGetAttribute(vm, 0, "_function", ntmp)) {
+    pkCallFunction(vm, ntmp, 1, nlist, 0);
+    return;
+  }
+  RESET_ERROR;
+  pkSetRuntimeError(vm, "Invalid variadic object.");
+}
+
+DEF(_variadicGetter,
+  "types.Variadic._getter()", "") {
+  pkPlaceSelf(vm, 0);
+  String* name = AS_STRING(ARG(1));
+  pkByteBuffer buff;
+  pkByteBufferInit(&buff);
+  pkByteBufferAddString(&buff, vm, "_", 1);
+  pkByteBufferAddString(&buff, vm, name->data, name->length);
+  name = newStringLength(vm, (const char*)buff.data, buff.count);
+  pkByteBufferClear(&buff, vm);
+
+  vmPushTempRef(vm, &name->_super);
+  Closure* closure = NULL;
+  bool has_method = hasMethod(vm, ARG(0), name, &closure);
+  vmPopTempRef(vm);
+
+  if (has_method) {
+    ARG(1) = VAR_OBJ(name);
+    pkSetAttribute(vm, 0, "_trampoline", 1);
+
+  } else {
+    pkGetAttribute(vm, 0, pkGetSlotString(vm, 1, NULL), 0);
+  }
+}
+#undef RESET_ERROR
+#undef ARG
+
 /*****************************************************************************/
 /* MODULE REGISTER                                                           */
 /*****************************************************************************/
@@ -345,6 +423,14 @@ void registerModuleTypes(PKVM* vm) {
   ADD_METHOD(cls_vector, "_repr", _vectorRepr, 0);
 
   pkReleaseHandle(vm, cls_vector);
+
+  PkHandle* cls_variadic = pkNewClass(vm, "Variadic", NULL, types,
+                                    NULL, NULL, "A variadic type.");
+  ADD_METHOD(cls_variadic, "_init", _variadicInit, -1);
+  ADD_METHOD(cls_variadic, "_call", _variadicCall, -1);
+  ADD_METHOD(cls_variadic, "_getter", _variadicGetter, 1);
+
+  pkReleaseHandle(vm, cls_variadic);
 
   pkRegisterModule(vm, types);
   pkReleaseHandle(vm, types);
