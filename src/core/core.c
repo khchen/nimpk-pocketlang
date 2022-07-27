@@ -273,6 +273,14 @@ static void _collectMethods(PKVM* vm, List* list, Class* cls) {
 /* CORE BUILTIN FUNCTIONS                                                    */
 /*****************************************************************************/
 
+DEF(coreYield, "", "") {
+
+  int argc = ARGC;
+  ASSERT(argc <= 1, OOPS);
+
+  vmYieldFiber(vm, (argc == 1) ? &ARG(1) : NULL);
+}
+
 DEF(coreHelp,
   "help([value:Closure|MethodBind|Class]) -> Null",
   "It'll print the docstring the object and return.") {
@@ -495,21 +503,6 @@ DEF(coreHex,
     (uint32_t)((ptr + length) - (char*)(buff)))));
 }
 
-DEF(coreYield,
-  "yield([value:Var]) -> Var",
-  "Return the current function with the yield [value] to current running "
-  "fiber. If the fiber is resumed, it'll run from the next statement of the "
-  "yield() call. If the fiber resumed with with a value, the return value of "
-  "the yield() would be that value otherwise null.") {
-
-  int argc = ARGC;
-  if (argc > 1) { // yield() or yield(val).
-    RET_ERR(newString(vm, "Invalid argument count."));
-  }
-
-  vmYieldFiber(vm, (argc == 1) ? &ARG(1) : NULL);
-}
-
 DEF(coreToString,
   "str(valueVar) -> String",
   "Returns the string representation of the value.") {
@@ -695,12 +688,12 @@ static void initializeBuiltinFunctions(PKVM* vm) {
   initializeBuiltinFN(vm, &vm->builtins_funcs[vm->builtins_count++], name, \
                       (int)strlen(name), argc, fn, DOCSTRING(fn));
   // General functions.
+  INITIALIZE_BUILTIN_FN("@yield",    coreYield,   -1);
   INITIALIZE_BUILTIN_FN("help",      coreHelp,    -1);
   INITIALIZE_BUILTIN_FN("dir",       coreDir,      1);
   INITIALIZE_BUILTIN_FN("assert",    coreAssert,  -1);
   INITIALIZE_BUILTIN_FN("bin",       coreBin,      1);
   INITIALIZE_BUILTIN_FN("hex",       coreHex,      1);
-  INITIALIZE_BUILTIN_FN("yield",     coreYield,   -1);
   INITIALIZE_BUILTIN_FN("str",       coreToString, 1);
   INITIALIZE_BUILTIN_FN("chr",       coreChr,      1);
   INITIALIZE_BUILTIN_FN("ord",       coreOrd,      1);
