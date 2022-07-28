@@ -71,6 +71,7 @@ typedef enum {
   TK_LBRACE,     // {
   TK_RBRACE,     // }
   TK_PERCENT,    // %
+  TK_QUESTION,   // ?
 
   TK_TILD,       // ~
   TK_AMP,        // &
@@ -220,6 +221,7 @@ static _Keyword _keywords[] = {
 typedef enum {
   PREC_NONE,
   PREC_LOWEST,
+  PREC_CONDITIONAL,   // :?
   PREC_LOGICAL_OR,    // or
   PREC_LOGICAL_AND,   // and
   PREC_EQUALITY,      // == !=
@@ -1088,6 +1090,7 @@ static void lexToken(Compiler* compiler) {
 
       case ',': setNextToken(parser, TK_COMMA); return;
       case ':': setNextToken(parser, TK_COLLON); return;
+      case '?': setNextToken(parser, TK_QUESTION); return;
       case ';': setNextToken(parser, TK_SEMICOLLON); return;
       case '#': skipLineComment(parser); break;
       case '(': setNextToken(parser, TK_LPARAN); return;
@@ -1578,6 +1581,7 @@ static void exprMap(Compiler* compiler);
 static void exprCall(Compiler* compiler);
 static void exprAttrib(Compiler* compiler);
 static void exprSubscript(Compiler* compiler);
+static void exprCondition(Compiler* compiler);
 
 // true, false, null, self.
 static void exprValue(Compiler* compiler);
@@ -1605,6 +1609,7 @@ GrammarRule rules[] = {  // Prefix       Infix             Infix Precedence
   /* TK_LBRACE     */ { exprMap,       NULL,             NO_INFIX },
   /* TK_RBRACE     */   NO_RULE,
   /* TK_PERCENT    */ { NULL,          exprBinaryOp,     PREC_FACTOR },
+  /* TK_QUESTION   */ { NULL,          exprCondition,    PREC_CONDITIONAL },
   /* TK_TILD       */ { exprUnaryOp,   NULL,             NO_INFIX },
   /* TK_AMP        */ { NULL,          exprBinaryOp,     PREC_BITWISE_AND },
   /* TK_PIPE       */ { NULL,          exprBinaryOp,     PREC_BITWISE_OR },
@@ -2220,6 +2225,34 @@ static void exprSubscript(Compiler* compiler) {
   } else {
     emitOpcode(compiler, OP_GET_SUBSCRIPT);
   }
+}
+
+static void exprCondition(Compiler* compiler) {
+  skipNewLines(compiler);
+
+  emitOpcode(compiler, OP_JUMP_IF_NOT);
+  int ifpatch = emitShort(compiler, 0xffff); //< Will be patched.
+
+  bool can_define = compiler->can_define;
+  compiler->can_define = false;
+  compileExpression(compiler); //< Condition.
+  compiler->can_define = can_define;
+
+  consume(compiler, TK_COLLON, "Expect ':' after conditional operator.");
+  skipNewLines(compiler);
+
+  emitOpcode(compiler, OP_JUMP);
+  int exit_jump = emitShort(compiler, 0xffff); //< Will be patched.
+
+  patchJump(compiler, ifpatch);
+
+  can_define = compiler->can_define;
+  compiler->can_define = false;
+  compileExpression(compiler); //< Condition.
+  compiler->can_define = can_define;
+
+  patchJump(compiler, exit_jump);
+  compilerChangeStack(compiler, -1);
 }
 
 static void exprValue(Compiler* compiler) {
