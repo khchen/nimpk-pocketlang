@@ -259,6 +259,7 @@ typedef enum {
   FUNC_LITERAL,
   FUNC_METHOD,
   FUNC_CONSTRUCTOR,
+  FUNC_DO,
 } FuncType;
 
 typedef struct {
@@ -1563,6 +1564,7 @@ static void compileExpression(Compiler* compiler);
 static void exprLiteral(Compiler* compiler);
 static void exprInterpolation(Compiler* compiler);
 static void exprFunction(Compiler* compiler);
+static void exprDo(Compiler* compiler);
 static void exprName(Compiler* compiler);
 
 static void exprOr(Compiler* compiler);
@@ -1654,7 +1656,7 @@ GrammarRule rules[] = {  // Prefix       Infix             Infix Precedence
   /* TK_FALSE      */ { exprValue,     NULL,             NO_INFIX },
   /* TK_SELF       */ { exprSelf,      NULL,             NO_INFIX },
   /* TK_SUPER      */ { exprSuper,     NULL,             NO_INFIX },
-  /* TK_DO         */   NO_RULE,
+  /* TK_DO         */ { exprDo,        NULL,             NO_INFIX },
   /* TK_THEN       */   NO_RULE,
   /* TK_WHILE      */   NO_RULE,
   /* TK_FOR        */   NO_RULE,
@@ -1895,6 +1897,16 @@ static void exprFunction(Compiler* compiler) {
   compiler->can_define = true;
   compileFunction(compiler, FUNC_LITERAL);
   compiler->can_define = can_define;
+}
+
+static void exprDo(Compiler* compiler) {
+  bool can_define = compiler->can_define;
+
+  compiler->can_define = true;
+  compileFunction(compiler, FUNC_DO);
+  compiler->can_define = can_define;
+  emitOpcode(compiler, OP_CALL);
+  emitByte(compiler, 0);
 }
 
 static void exprName(Compiler* compiler) {
@@ -2760,7 +2772,7 @@ static void compileFunction(Compiler* compiler, FuncType fn_type) {
   // (the argc of the method) it requires to throw a compile time error.
   int operator_argc = -2;
 
-  if (fn_type != FUNC_LITERAL) {
+  if (fn_type != FUNC_LITERAL && fn_type != FUNC_DO) {
 
     if (match(compiler, TK_NAME)) {
       name = compiler->parser.previous.start;
@@ -2813,7 +2825,9 @@ static void compileFunction(Compiler* compiler, FuncType fn_type) {
   compilerEnterBlock(compiler); // Parameter depth.
 
   // Parameter list is optional.
-  if (match(compiler, TK_LPARAN) && !match(compiler, TK_RPARAN)) {
+  if (fn_type != FUNC_DO &&
+      match(compiler, TK_LPARAN) && !match(compiler, TK_RPARAN)) {
+
     do {
       skipNewLines(compiler);
 
