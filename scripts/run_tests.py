@@ -36,6 +36,7 @@ TEST_SUITE = {
     "modules/math.pk",
     "modules/io.pk",
     "modules/json.pk",
+    "modules/re.pk",
   ),
 
   "Random Scripts" : (

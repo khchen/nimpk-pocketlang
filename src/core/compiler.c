@@ -67,6 +67,7 @@ typedef enum {
   TK_LPARAN,     // (
   TK_RPARAN,     // )
   TK_LBRACKET,   // [
+  TK_LBRACKETEX, // ' ' + [
   TK_RBRACKET,   // ]
   TK_LBRACE,     // {
   TK_RBRACE,     // }
@@ -141,6 +142,7 @@ typedef enum {
   TK_BREAK,      // break
   TK_CONTINUE,   // continue
   TK_RETURN,     // return
+  TK_YIELD,      // yield
 
   TK_NAME,       // identifier
 
@@ -206,6 +208,7 @@ static _Keyword _keywords[] = {
   { "break",    5, TK_BREAK    },
   { "continue", 8, TK_CONTINUE },
   { "return",   6, TK_RETURN   },
+  { "yield",    5, TK_YIELD    },
 
   { NULL,       0, (_TokenType)(0) }, // Sentinel to mark the end of the array.
 };
@@ -493,9 +496,13 @@ struct Compiler {
   // meaningless).
   bool is_last_call;
 
+  // Avoid _compileOptionalParanCall parsing error in interpolation.
+  bool in_interpolation;
+
   // Since the compiler manually call some builtin functions we need to cache
   // the index of the functions in order to prevent search for them each time.
   int bifn_list_join;
+  int bifn_yield;
 };
 
 typedef struct {
@@ -573,6 +580,7 @@ static void compilerInit(Compiler* compiler, PKVM* vm, const char* source,
   compiler->can_define = true;
   compiler->new_local = false;
   compiler->is_last_call = false;
+  compiler->in_interpolation = false;
 
   const char* source_path = "@??";
   if (module->path != NULL) {
@@ -587,6 +595,10 @@ static void compilerInit(Compiler* compiler, PKVM* vm, const char* source,
   // Cache the required built functions.
   compiler->bifn_list_join = findBuiltinFunction(vm, "list_join", 9);
   ASSERT(compiler->bifn_list_join >= 0, OOPS);
+
+  compiler->bifn_yield = findBuiltinFunction(vm, "@yield", 6);
+  ASSERT(compiler->bifn_yield >= 0, OOPS);
+
 }
 
 /*****************************************************************************/
@@ -835,6 +847,12 @@ static char peekChar(Parser* parser) {
 static char peekNextChar(Parser* parser) {
   if (peekChar(parser) == '\0') return '\0';
   return *(parser->current_char + 1);
+}
+
+// Returns the prev char of the compiler on.
+static char peekPrevChar(Parser* parser) {
+  if (parser->current_char - 2 < parser->source) return '\0';
+  return *(parser->current_char - 2);
 }
 
 // Advance the compiler by 1 char.
@@ -1115,7 +1133,15 @@ static void lexToken(Compiler* compiler) {
       case '#': skipLineComment(parser); break;
       case '(': setNextToken(parser, TK_LPARAN); return;
       case ')': setNextToken(parser, TK_RPARAN); return;
-      case '[': setNextToken(parser, TK_LBRACKET); return;
+      case '[': {
+        char c = peekPrevChar(parser);
+        if (c == '\t' || c == ' ') {
+          setNextToken(parser, TK_LBRACKETEX); return;
+        }
+        else {
+          setNextToken(parser, TK_LBRACKET); return;
+        }
+      }
       case ']': setNextToken(parser, TK_RBRACKET); return;
       case '%':
         setNextTwoCharToken(parser, '=', TK_PERCENT, TK_MODEQ);
@@ -1619,6 +1645,7 @@ static void exprValue(Compiler* compiler);
 
 static void exprSelf(Compiler* compiler);
 static void exprSuper(Compiler* compiler);
+static void exprYield(Compiler* compiler);
 
 #define NO_RULE { NULL,          NULL,          PREC_NONE }
 #define NO_INFIX PREC_NONE
@@ -1636,6 +1663,7 @@ GrammarRule rules[] = {  // Prefix       Infix             Infix Precedence
   /* TK_LPARAN     */ { exprGrouping,  exprCall,         PREC_CALL },
   /* TK_RPARAN     */   NO_RULE,
   /* TK_LBRACKET   */ { exprList,      exprSubscript,    PREC_SUBSCRIPT },
+  /* TK_LBRACKETEX */ { exprList,      exprSubscript,    PREC_SUBSCRIPT },
   /* TK_RBRACKET   */   NO_RULE,
   /* TK_LBRACE     */ { exprMap,       NULL,             NO_INFIX },
   /* TK_RBRACE     */   NO_RULE,
@@ -1699,6 +1727,7 @@ GrammarRule rules[] = {  // Prefix       Infix             Infix Precedence
   /* TK_BREAK      */   NO_RULE,
   /* TK_CONTINUE   */   NO_RULE,
   /* TK_RETURN     */   NO_RULE,
+  /* TK_YIELD      */ { exprYield,     NULL,             NO_INFIX },
   /* TK_NAME       */ { exprName,      NULL,             NO_INFIX },
   /* TK_NUMBER     */ { exprLiteral,   NULL,             NO_INFIX },
   /* TK_STRING     */ { exprLiteral,   NULL,             NO_INFIX },
@@ -1707,6 +1736,10 @@ GrammarRule rules[] = {  // Prefix       Infix             Infix Precedence
 
 static GrammarRule* getRule(_TokenType type) {
   return &(rules[(int)type]);
+}
+
+static inline bool isExprRule(_TokenType type) {
+  return rules[(int)type].prefix != NULL;
 }
 
 // FIXME:
@@ -1804,26 +1837,23 @@ static void _compileCall(Compiler* compiler, Opcode call_type, int method) {
     (call_type == OP_SUPER_CALL), OOPS);
   // Compile parameters.
   int argc = 0;
+  bool noparan = compiler->parser.optional_call_paran;
+  compiler->parser.optional_call_paran = false;
 
-  if (compiler->parser.optional_call_paran) {
-    compiler->parser.optional_call_paran = false;
-    compileExpression(compiler);
-    argc = 1;
+  if (noparan || !match(compiler, TK_RPARAN)) {
+    do {
+      skipNewLines(compiler);
+      compileExpression(compiler);
+      if (!noparan) skipNewLines(compiler);
+      argc++;
+    } while (match(compiler, TK_COMMA));
 
-  } else {
-    if (!match(compiler, TK_RPARAN)) {
-      do {
-        skipNewLines(compiler);
-        compileExpression(compiler);
-        skipNewLines(compiler);
-        argc++;
-      } while (match(compiler, TK_COMMA));
+    if (!noparan) {
       consume(compiler, TK_RPARAN, "Expected ')' after parameter list.");
     }
   }
 
   emitOpcode(compiler, call_type);
-
   emitByte(compiler, argc);
 
   if ((call_type == OP_METHOD_CALL) || (call_type == OP_SUPER_CALL)) {
@@ -1840,24 +1870,38 @@ static void _compileCall(Compiler* compiler, Opcode call_type, int method) {
 // literals that can be passed for no pranthese call (a syntax sugar) and
 // emit the call. Return true if such call matched. If [method] >= 0 it'll
 // compile a method call otherwise a regular call.
-static bool _compileOptionalParanCall(Compiler* compiler, int method) {
-  static _TokenType tk[] = {
-    TK_FN,
-    //TK_STRING,
-    //TK_STRING_INTERP,
-    TK_ERROR, // Sentinel to stop the iteration.
-  };
 
-  for (int i = 0; tk[i] != TK_ERROR; i++) {
-    if (peek(compiler) == tk[i]) {
-      compiler->parser.optional_call_paran = true;
-      Opcode call_type = ((method >= 0) ? OP_METHOD_CALL : OP_CALL);
-      _compileCall(compiler, call_type, method);
-      return true;
-    }
+// Add more syntax sugar: name, string, number, primitive, map, list, etc.
+// If there is some space before '[', parse it to a list instead of subscript.
+static bool _compileOptionalParanCall(Compiler* compiler, int method) {
+  _TokenType tk = peek(compiler);
+  switch (tk) {
+    case TK_LBRACKETEX:
+    case TK_LBRACE:
+    case TK_FN:
+    case TK_NULL:
+    case TK_NOT:
+    case TK_TRUE:
+    case TK_FALSE:
+    case TK_SELF:
+    case TK_SUPER:
+    case TK_NAME:
+    case TK_NUMBER:
+    case TK_STRING:
+    case TK_STRING_INTERP:
+      break;
+    default:
+      return false;
   }
 
-  return false;
+  // In interpolation we just return.
+  if (compiler->in_interpolation &&
+    (tk == TK_STRING || tk == TK_STRING_INTERP)) return false;
+
+  compiler->parser.optional_call_paran = true;
+  Opcode call_type = ((method >= 0) ? OP_METHOD_CALL : OP_CALL);
+  _compileCall(compiler, call_type, method);
+  return true;
 }
 
 static void exprLiteral(Compiler* compiler) {
@@ -1883,6 +1927,8 @@ static void exprInterpolation(Compiler* compiler) {
   int size_index = emitShort(compiler, 0);
 
   int size = 0;
+  bool in_interpolation = compiler->in_interpolation;
+  compiler->in_interpolation = true;
   do {
     // Push the string on the stack and append it to the list.
     exprLiteral(compiler);
@@ -1896,6 +1942,7 @@ static void exprInterpolation(Compiler* compiler) {
     size++;
     skipNewLines(compiler);
   } while (match(compiler, TK_STRING_INTERP));
+  compiler->in_interpolation = in_interpolation;
 
   // The last string is not TK_STRING_INTERP but it would be
   // TK_STRING. Apped it.
@@ -2378,6 +2425,23 @@ static void exprSuper(Compiler* compiler) {
   _compileCall(compiler, OP_SUPER_CALL, index);
 }
 
+static void exprYield(Compiler* compiler) {
+  _TokenType type = peek(compiler);
+  int argc = isExprRule(type) ? 1: 0;
+
+  emitOpcode(compiler, OP_PUSH_BUILTIN_FN);
+  emitByte(compiler, compiler->bifn_yield);
+  if (argc != 0) {
+    bool can_define = compiler->can_define;
+    compiler->can_define = false;
+    compileExpression(compiler);
+    compiler->can_define = can_define;
+  }
+  emitOpcode(compiler, OP_CALL);
+  emitByte(compiler, argc);
+  compilerChangeStack(compiler, -argc);
+}
+
 static void parsePrecedence(Compiler* compiler, Precedence precedence) {
   lexToken(compiler);
   if (compiler->parser.has_syntax_error) return;
@@ -2795,7 +2859,7 @@ static bool matchOperatorMethod(Compiler* compiler,
                 "Expected keyword self for unary operator definition.");
     return false;
   }
-  if (match(compiler, TK_LBRACKET)) {
+  if (match(compiler, TK_LBRACKET) || match(compiler, TK_LBRACKETEX)) {
     if (match(compiler, TK_RBRACKET)) {
       if (match(compiler, TK_EQ)) _RET("[]=", 2);
       _RET("[]", 1);
@@ -2890,7 +2954,7 @@ static void compileFunction(Compiler* compiler, FuncType fn_type) {
     global_index = compilerAddVariable(compiler, name, name_length, name_line);
   }
 
-  if (fn_type == FUNC_METHOD && strncmp(name, CTOR_NAME, name_length) == 0) {
+  if (fn_type == FUNC_METHOD && strncmp(name, LITS__init, name_length) == 0) {
     fn_type = FUNC_CONSTRUCTOR;
   }
 
@@ -2928,11 +2992,26 @@ static void compileFunction(Compiler* compiler, FuncType fn_type) {
                       "Multiple definition of a parameter.");
       }
 
-      compilerAddVariable(compiler, param_name, param_len,
+      int index = compilerAddVariable(compiler, param_name, param_len,
                           compiler->parser.previous.line);
+
+      // parameter with default value
+      // def foo(a=expr) compile into: if (a != null) then a = expr end
+      if (match(compiler, TK_EQ)) {
+        emitPushValue(compiler, NAME_LOCAL_VAR, index);
+        emitOpcode(compiler, OP_PUSH_NULL);
+        emitOpcode(compiler, OP_EQEQ);
+        emitOpcode(compiler, OP_JUMP_IF_NOT);
+        int ifpatch = emitShort(compiler, 0xffff); //< Will be patched.
+        compileExpression(compiler);
+        emitStoreValue(compiler, NAME_LOCAL_VAR, index);
+        emitOpcode(compiler, OP_POP);
+        patchJump(compiler, ifpatch);
+      }
 
     } while (match(compiler, TK_COMMA));
 
+    skipNewLines(compiler); // \n is allowed both after '(' and before ')'.
     consume(compiler, TK_RPARAN, "Expected ')' after parameter list.");
   }
 

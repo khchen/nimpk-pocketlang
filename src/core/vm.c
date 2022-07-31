@@ -182,11 +182,14 @@ bool vmPrepareFiber(PKVM* vm, Fiber* fiber, int argc, Var* argv) {
   ASSERT(fiber->closure->fn->arity >= -1,
          OOPS " (Forget to initialize arity.)");
 
-  if ((fiber->closure->fn->arity != -1) && argc != fiber->closure->fn->arity) {
-    char buff[STR_INT_BUFF_SIZE];
-    sprintf(buff, "%d", fiber->closure->fn->arity);
-    _ERR_FAIL(stringFormat(vm, "Expected exactly $ argument(s) for "
-                           "function $.", buff, fiber->closure->fn->name));
+  // Like lua: Extra arguments are thrown away; extra parameters get null.
+  int nulls = 0;
+  if (fiber->closure->fn->arity != -1) {
+    if (argc > fiber->closure->fn->arity) {
+      argc = fiber->closure->fn->arity;
+    } else {
+      nulls = fiber->closure->fn->arity - argc;
+    }
   }
 
   if (fiber->state != FIBER_NEW) {
@@ -206,8 +209,8 @@ bool vmPrepareFiber(PKVM* vm, Fiber* fiber, int argc, Var* argv) {
   ASSERT(fiber->stack != NULL && fiber->sp == fiber->stack + 1, OOPS);
   ASSERT(fiber->ret == fiber->stack, OOPS);
 
-  vmEnsureStackSize(vm, fiber, (int) (fiber->sp - fiber->stack) + argc);
-  ASSERT((fiber->stack + fiber->stack_size) - fiber->sp >= argc, OOPS);
+  vmEnsureStackSize(vm, fiber, (int)(fiber->sp - fiber->stack) + argc + nulls);
+  ASSERT((fiber->stack + fiber->stack_size) - fiber->sp >= argc + nulls, OOPS);
 
   // Pass the function arguments.
 
@@ -216,7 +219,10 @@ bool vmPrepareFiber(PKVM* vm, Fiber* fiber, int argc, Var* argv) {
   for (int i = 0; i < argc; i++) {
     fiber->ret[1 + i] = *(argv + i); // +1: ret[0] is return value.
   }
-  fiber->sp += argc; // Parameters.
+  for (int i = 0; i < nulls; i++) {
+    fiber->ret[1 + i + argc] = VAR_NULL;
+  }
+  fiber->sp += argc + nulls; // Parameters.
 
   // Native functions doesn't own a stack frame so, we're done here.
   if (fiber->closure->fn->is_native) return true;
@@ -1174,12 +1180,7 @@ L_vm_main_loop:
 
       Closure* method = (Closure*)AS_OBJ(PEEK(-1));
       Class* cls = (Class*)AS_OBJ(PEEK(-2));
-
-      if (strcmp(method->fn->name, CTOR_NAME) == 0) {
-        cls->ctor = method;
-      }
-
-      pkClosureBufferWrite(&cls->methods, vm, method);
+      bindMethod(vm, cls, method);
 
       DROP();
       DISPATCH();
@@ -1301,12 +1302,7 @@ L_do_call:
         // here).
         *fiber->ret = fiber->self;
 
-        closure = (const Closure*)(cls)->ctor;
-        while (closure == NULL) {
-          cls = cls->super_class;
-          if (cls == NULL) break;
-          closure = cls->ctor;
-        }
+        closure = (const Closure*) getMagicMethod(cls, METHOD_INIT);
 
         // No constructor is defined on the class. Just return self.
         if (closure == NULL) {
@@ -1321,20 +1317,36 @@ L_do_call:
         }
 
       } else {
-        RUNTIME_ERROR(stringFormat(vm, "$ '$'.", "Expected a callable to "
-                      "call, instead got",
-                      varTypeName(callable)));
+        closure = NULL;
+
+        // try to call a "callable instance" via "_call".
+        if (IS_OBJ_TYPE(callable, OBJ_INST)) {
+          Instance* inst = (Instance*)AS_OBJ(callable);
+          closure = getMagicMethod(inst->cls, METHOD_CALL);
+        }
+
+        if (closure == NULL) {
+          RUNTIME_ERROR(stringFormat(vm, "$ '$'.", "Expected a callable to "
+                        "call, instead got",
+                        varTypeName(callable)));
+
+        } else {
+          fiber->self = callable;
+        }
       }
 
       // If we reached here it's a valid callable.
       ASSERT(closure != NULL, OOPS);
 
-      // -1 argument means multiple number of args.
-      if (closure->fn->arity != -1 && closure->fn->arity != argc) {
-        char buff[STR_INT_BUFF_SIZE]; sprintf(buff, "%d", closure->fn->arity);
-        String* msg = stringFormat(vm, "Expected exactly $ argument(s) "
-                                  "for function $", buff, closure->fn->name);
-        RUNTIME_ERROR(msg);
+      // Like lua: Extra arguments are thrown away; extra parameters get null.
+      if (closure->fn->arity != -1) {
+        if (argc > closure->fn->arity) { // adjust stack
+          fiber->sp -= argc - closure->fn->arity;
+        }
+        while (closure->fn->arity > argc) {
+          PUSH(VAR_NULL);
+          argc++;
+        }
       }
 
       if (closure->fn->is_native) {
@@ -1526,7 +1538,7 @@ L_do_call:
       Var on = PEEK(-1); // Don't pop yet, we need the reference for gc.
       String* name = moduleGetStringAt(module, READ_SHORT());
       ASSERT(name != NULL, OOPS);
-      Var value = varGetAttrib(vm, on, name);
+      Var value = varGetAttrib(vm, on, name, false);
       DROP(); // on
       PUSH(value);
 
@@ -1539,7 +1551,7 @@ L_do_call:
       Var on = PEEK(-1);
       String* name = moduleGetStringAt(module, READ_SHORT());
       ASSERT(name != NULL, OOPS);
-      PUSH(varGetAttrib(vm, on, name));
+      PUSH(varGetAttrib(vm, on, name, false));
       CHECK_ERROR();
       DISPATCH();
     }
@@ -1550,7 +1562,7 @@ L_do_call:
       Var on = PEEK(-2);    // Don't pop yet, we need the reference for gc.
       String* name = moduleGetStringAt(module, READ_SHORT());
       ASSERT(name != NULL, OOPS);
-      varSetAttrib(vm, on, name, value);
+      varSetAttrib(vm, on, name, value, false);
 
       DROP(); // value
       DROP(); // on
