@@ -1929,6 +1929,12 @@ bool varContains(PKVM* vm, Var elem, Var container) {
       return !IS_UNDEF(mapGet(map, elem));
     } break;
 
+    case OBJ_RANGE: {
+      Range* range = (Range*)AS_OBJ(container);
+      double num = AS_NUM(elem);
+      return num >= range->from && num < range->to;
+    } break;
+
     default: break;
   }
 
