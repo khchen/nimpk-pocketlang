@@ -1897,6 +1897,8 @@ static bool _compileOptionalParanCall(Compiler* compiler, int method) {
     case TK_STRING_INTERP:
     case TK_YIELD:
     case TK_RAISE:
+    case TK_IF:
+    case TK_DO:
       break;
     default:
       return false;
