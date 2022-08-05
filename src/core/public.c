@@ -307,11 +307,9 @@ void pkClassAddMethod(PKVM* vm, PkHandle* cls,
 
   Closure* method = newClosure(vm, fn);
   vmPopTempRef(vm); // fn.
+
   vmPushTempRef(vm, &method->_super); // method.
-  {
-    pkClosureBufferWrite(&class_->methods, vm, method);
-    if (!strcmp(name, CTOR_NAME)) class_->ctor = method;
-  }
+  bindMethod(vm, class_, method);
   vmPopTempRef(vm); // method.
 }
 
@@ -320,6 +318,16 @@ void pkModuleAddSource(PKVM* vm, PkHandle* module, const char* source) {
   CHECK_ARG_NULL(source);
   // TODO: compiler options, maybe set to the vm and reuse it here.
   compile(vm, (Module*) AS_OBJ(module->value), source, NULL);
+}
+
+void pkModuleInitialize(PKVM* vm, PkHandle* handle) {
+  CHECK_HANDLE_TYPE(handle, OBJ_MODULE);
+
+  Module* module = (Module*) AS_OBJ(handle->value);
+  if (!module->initialized && module->body) {
+    vmCallFunction(vm, module->body, 0, NULL, NULL);
+    module->initialized = true;
+  }
 }
 
 void pkReleaseHandle(PKVM* vm, PkHandle* handle) {
@@ -457,7 +465,6 @@ static inline bool isStringEmpty(const char* line) {
 // This function will get the main function from the module to run it in the
 // repl mode.
 Closure* moduleGetMainFunction(PKVM* vm, Module* module) {
-
   int main_index = moduleGetGlobalIndex(module, IMPLICIT_MAIN_NAME,
                                         (uint32_t) strlen(IMPLICIT_MAIN_NAME));
   if (main_index == -1) return NULL;
@@ -597,13 +604,13 @@ bool pkCheckArgcRange(PKVM* vm, int argc, int min, int max) {
 
   if (argc < min) {
     char buff[STR_INT_BUFF_SIZE]; sprintf(buff, "%d", min);
-    VM_SET_ERROR(vm, stringFormat(vm, "Expected at least %s argument(s).",
+    VM_SET_ERROR(vm, stringFormat(vm, "Expected at least $ argument(s).",
                                        buff));
     return false;
 
   } else if (argc > max) {
     char buff[STR_INT_BUFF_SIZE]; sprintf(buff, "%d", max);
-    VM_SET_ERROR(vm, stringFormat(vm, "Expected at most %s argument(s).",
+    VM_SET_ERROR(vm, stringFormat(vm, "Expected at most $ argument(s).",
                                        buff));
     return false;
   }
@@ -714,7 +721,8 @@ bool pkIsSlotInstanceOf(PKVM* vm, int inst, int cls, bool* val) {
   VALIDATE_SLOT_INDEX(inst);
   VALIDATE_SLOT_INDEX(cls);
 
-  *val = varIsType(vm, inst, cls);
+  Var instance = ARG(inst), class_ = SLOT(cls);
+  *val = varIsType(vm, instance, class_);
   return !VM_HAS_ERROR(vm);
 }
 
@@ -826,6 +834,21 @@ void pkSetSlotHandle(PKVM* vm, int index, PkHandle* handle) {
   SET_SLOT(index, handle->value);
 }
 
+bool pkGetMainModule(PKVM* vm, int index) {
+  CHECK_FIBER_EXISTS(vm);
+  VALIDATE_SLOT_INDEX(index);
+
+  if (vm->fiber->frame_count != 0) {
+    CallFrame* frame = &vm->fiber->frames[vm->fiber->frame_count - 1];
+    if (frame != NULL) {
+      Module* current_module = frame->closure->fn->owner;
+      SET_SLOT(index, VAR_OBJ(current_module));
+      return true;
+    }
+  }
+  return false;
+}
+
 uint32_t pkGetSlotHash(PKVM* vm, int index) {
   CHECK_FIBER_EXISTS(vm);
   VALIDATE_SLOT_INDEX(index);
@@ -842,7 +865,7 @@ bool pkSetAttribute(PKVM* vm, int instance, const char* name, int value) {
 
   String* sname = newString(vm, name);
   vmPushTempRef(vm, &sname->_super); // sname.
-  varSetAttrib(vm, SLOT(instance), sname, SLOT(value));
+  varSetAttrib(vm, SLOT(instance), sname, SLOT(value), true);
   vmPopTempRef(vm); // sname.
 
   return !VM_HAS_ERROR(vm);
@@ -857,7 +880,7 @@ bool pkGetAttribute(PKVM* vm, int instance, const char* name,
 
   String* sname = newString(vm, name);
   vmPushTempRef(vm, &sname->_super); // sname.
-  SET_SLOT(index, varGetAttrib(vm, SLOT(instance), sname));
+  SET_SLOT(index, varGetAttrib(vm, SLOT(instance), sname, true));
   vmPopTempRef(vm); // sname.
 
   return !VM_HAS_ERROR(vm);
@@ -869,13 +892,7 @@ static Var _newInstance(PKVM* vm, Class* cls, int argc, Var* argv) {
 
   if (IS_OBJ(instance)) vmPushTempRef(vm, AS_OBJ(instance)); // instance.
 
-  Closure* ctor = cls->ctor;
-  while (ctor == NULL) {
-    cls = cls->super_class;
-    if (cls == NULL) break;
-    ctor = cls->ctor;
-  }
-
+  Closure* ctor = getMagicMethod(cls, METHOD_INIT);
   if (ctor != NULL) vmCallMethod(vm, instance, ctor, argc, argv, NULL);
   if (IS_OBJ(instance)) vmPopTempRef(vm); // instance.
 
@@ -920,6 +937,43 @@ void pkNewMap(PKVM* vm, int index) {
   SET_SLOT(index, VAR_OBJ(newMap(vm)));
 }
 
+bool pkMapGet(PKVM* vm, int map, int key, int ret) {
+  CHECK_FIBER_EXISTS(vm);
+  VALIDATE_SLOT_INDEX(map);
+  VALIDATE_SLOT_INDEX(key);
+  VALIDATE_SLOT_INDEX(ret);
+
+  ASSERT(IS_OBJ_TYPE(SLOT(map), OBJ_MAP), "Slot value wasn't a Map");
+  Map* m = (Map*) AS_OBJ(SLOT(map));
+  Var k = SLOT(key);
+
+  if (!IS_OBJ(k) || isObjectHashable(AS_OBJ(k)->type)) {
+    Var value = mapGet(m, k);
+    if (!IS_UNDEF(value)) {
+      SET_SLOT(ret, value);
+      return true;
+    }
+  }
+  return false;
+}
+
+bool pkMapSet(PKVM* vm, int map, int key, int value) {
+  CHECK_FIBER_EXISTS(vm);
+  VALIDATE_SLOT_INDEX(map);
+  VALIDATE_SLOT_INDEX(key);
+  VALIDATE_SLOT_INDEX(value);
+
+  ASSERT(IS_OBJ_TYPE(SLOT(map), OBJ_MAP), "Slot value wasn't a Map");
+  Map* m = (Map*) AS_OBJ(SLOT(map));
+  Var k = SLOT(key);
+
+  if (!IS_OBJ(k) || isObjectHashable(AS_OBJ(k)->type)) {
+    mapSet(vm, m, k, SLOT(value));
+    return true;
+  }
+  return false;
+}
+
 bool pkListInsert(PKVM* vm, int list, int32_t index, int value) {
   CHECK_FIBER_EXISTS(vm);
   VALIDATE_SLOT_INDEX(list);
@@ -954,6 +1008,42 @@ bool pkListPop(PKVM* vm, int list, int32_t index, int popped) {
 
   Var p = listRemoveAt(vm, l, index);
   if (popped >= 0) SET_SLOT(popped, p);
+  return true;
+}
+
+bool pkListGet(PKVM* vm, int list, int32_t index, int ret) {
+  CHECK_FIBER_EXISTS(vm);
+  VALIDATE_SLOT_INDEX(list);
+  VALIDATE_SLOT_INDEX(ret);
+
+  ASSERT(IS_OBJ_TYPE(SLOT(list), OBJ_LIST), "Slot value wasn't a List");
+  List* l = (List*) AS_OBJ(SLOT(list));
+  if (index < 0) index += l->elements.count;
+
+  if (index < 0 || (uint32_t) index > l->elements.count) {
+    VM_SET_ERROR(vm, newString(vm, "Index out of bounds."));
+    return false;
+  }
+
+  SET_SLOT(ret, l->elements.data[index]);
+  return true;
+}
+
+bool pkListSet(PKVM* vm, int list, int32_t index, int value) {
+  CHECK_FIBER_EXISTS(vm);
+  VALIDATE_SLOT_INDEX(list);
+  VALIDATE_SLOT_INDEX(value);
+
+  ASSERT(IS_OBJ_TYPE(SLOT(list), OBJ_LIST), "Slot value wasn't a List");
+  List* l = (List*) AS_OBJ(SLOT(list));
+  if (index < 0) index += l->elements.count;
+
+  if (index < 0 || (uint32_t) index > l->elements.count) {
+    VM_SET_ERROR(vm, newString(vm, "Index out of bounds."));
+    return false;
+  }
+
+  l->elements.data[index] = SLOT(value);
   return true;
 }
 
