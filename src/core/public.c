@@ -210,6 +210,30 @@ void pkRegisterBuiltinFn(PKVM* vm, const char* name, pkNativeFn fn,
   vmPopTempRef(vm); // fptr.
 }
 
+bool pkGetBuiltinFn(PKVM* vm, const char* name, int index) {
+  VALIDATE_SLOT_INDEX(index);
+
+  for (int i = 0; i < vm->builtins_count; i++) {
+    Closure* bfn = vm->builtins_funcs[i];
+    if (strcmp(bfn->fn->name, name) == 0) {
+      SET_SLOT(index, VAR_OBJ(bfn));
+      return true;
+    }
+  }
+  return false;
+}
+
+bool pkGetBuildinClass(PKVM* vm, const char* name, int index) {
+  for (int i = 0; i < PK_INSTANCE; i++) {
+    if (strcmp(vm->builtin_classes[i]->name->data, name) == 0) {
+      Class* cls = vm->builtin_classes[i];
+      SET_SLOT(index, VAR_OBJ(cls));
+      return true;
+    }
+  }
+  return false;
+}
+
 void pkAddSearchPath(PKVM* vm, const char* path) {
   CHECK_ARG_NULL(path);
 
@@ -320,6 +344,18 @@ void pkModuleAddSource(PKVM* vm, PkHandle* module, const char* source) {
   CHECK_ARG_NULL(source);
   // TODO: compiler options, maybe set to the vm and reuse it here.
   compile(vm, (Module*) AS_OBJ(module->value), source, NULL);
+}
+
+bool pkModuleInitialize(PKVM* vm, PkHandle* handle) {
+  CHECK_HANDLE_TYPE(handle, OBJ_MODULE);
+  VM_RESET_ERROR(vm);
+
+  Module* module = (Module*) AS_OBJ(handle->value);
+  if (!module->initialized && module->body) {
+    vmCallFunction(vm, module->body, 0, NULL, NULL);
+    module->initialized = true;
+  }
+  return !VM_HAS_ERROR(vm);
 }
 
 void pkReleaseHandle(PKVM* vm, PkHandle* handle) {
@@ -989,6 +1025,28 @@ uint32_t pkListLength(PKVM* vm, int list) {
   return l->elements.count;
 }
 
+bool pkGetSubscript(PKVM* vm, int on, int key, int ret) {
+  CHECK_FIBER_EXISTS(vm);
+  VALIDATE_SLOT_INDEX(on);
+  VALIDATE_SLOT_INDEX(key);
+  VALIDATE_SLOT_INDEX(ret);
+  VM_RESET_ERROR(vm);
+
+  SET_SLOT(ret, varGetSubscript(vm, SLOT(on), SLOT(key)));
+  return !VM_HAS_ERROR(vm);
+}
+
+bool pkSetSubscript(PKVM* vm, int on, int key, int value) {
+  CHECK_FIBER_EXISTS(vm);
+  VALIDATE_SLOT_INDEX(on);
+  VALIDATE_SLOT_INDEX(key);
+  VALIDATE_SLOT_INDEX(value);
+  VM_RESET_ERROR(vm);
+
+  varsetSubscript(vm, SLOT(on), SLOT(key), SLOT(value));
+  return !VM_HAS_ERROR(vm);
+}
+
 bool pkCallFunction(PKVM* vm, int fn, int argc, int argv, int ret) {
   CHECK_FIBER_EXISTS(vm);
   VM_RESET_ERROR(vm);
@@ -1087,6 +1145,21 @@ bool pkImportModule(PKVM* vm, const char* path, int index) {
 
   SET_SLOT(index, module);
   return !VM_HAS_ERROR(vm);
+}
+
+bool pkGetMainModule(PKVM* vm, int index) {
+  CHECK_FIBER_EXISTS(vm);
+  VALIDATE_SLOT_INDEX(index);
+
+  if (vm->fiber->frame_count != 0) {
+    CallFrame* frame = &vm->fiber->frames[vm->fiber->frame_count - 1];
+    if (frame != NULL) {
+      Module* current_module = frame->closure->fn->owner;
+      SET_SLOT(index, VAR_OBJ(current_module));
+      return true;
+    }
+  }
+  return false;
 }
 
 void pkGetClass(PKVM* vm, int instance, int index) {

@@ -17,6 +17,8 @@ typedef void (*pkFreeVM_t)(PKVM*);
 typedef void (*pkSetUserData_t)(PKVM*, void*);
 typedef void* (*pkGetUserData_t)(const PKVM*);
 typedef void (*pkRegisterBuiltinFn_t)(PKVM*, const char*, pkNativeFn, int, const char*);
+typedef bool (*pkGetBuiltinFn_t)(PKVM*, const char*, int);
+typedef bool (*pkGetBuildinClass_t)(PKVM*, const char*, int);
 typedef void (*pkAddSearchPath_t)(PKVM*, const char*);
 typedef void* (*pkRealloc_t)(PKVM*, void*, size_t);
 typedef void (*pkReleaseHandle_t)(PKVM*, PkHandle*);
@@ -26,6 +28,7 @@ typedef void (*pkModuleAddFunction_t)(PKVM*, PkHandle*, const char*, pkNativeFn,
 typedef PkHandle* (*pkNewClass_t)(PKVM*, const char*, PkHandle*, PkHandle*, pkNewInstanceFn, pkDeleteInstanceFn, const char*);
 typedef void (*pkClassAddMethod_t)(PKVM*, PkHandle*, const char*, pkNativeFn, int, const char*);
 typedef void (*pkModuleAddSource_t)(PKVM*, PkHandle*, const char*);
+typedef bool (*pkModuleInitialize_t)(PKVM*, PkHandle*);
 typedef PkResult (*pkRunString_t)(PKVM*, const char*);
 typedef PkResult (*pkRunFile_t)(PKVM*, const char*);
 typedef PkResult (*pkRunREPL_t)(PKVM*);
@@ -66,11 +69,14 @@ typedef void (*pkNewMap_t)(PKVM*, int);
 typedef bool (*pkListInsert_t)(PKVM*, int, int32_t, int);
 typedef bool (*pkListPop_t)(PKVM*, int, int32_t, int);
 typedef uint32_t (*pkListLength_t)(PKVM*, int);
+typedef bool (*pkGetSubscript_t)(PKVM*, int, int, int);
+typedef bool (*pkSetSubscript_t)(PKVM*, int, int, int);
 typedef bool (*pkCallFunction_t)(PKVM*, int, int, int, int);
 typedef bool (*pkCallMethod_t)(PKVM*, int, const char*, int, int, int);
 typedef bool (*pkGetAttribute_t)(PKVM*, int, const char*, int);
 typedef bool (*pkSetAttribute_t)(PKVM*, int, const char*, int);
 typedef bool (*pkImportModule_t)(PKVM*, const char*, int);
+typedef bool (*pkGetMainModule_t)(PKVM*, int);
 
 typedef struct {
   pkNewConfiguration_t pkNewConfiguration_ptr;
@@ -79,6 +85,8 @@ typedef struct {
   pkSetUserData_t pkSetUserData_ptr;
   pkGetUserData_t pkGetUserData_ptr;
   pkRegisterBuiltinFn_t pkRegisterBuiltinFn_ptr;
+  pkGetBuiltinFn_t pkGetBuiltinFn_ptr;
+  pkGetBuildinClass_t pkGetBuildinClass_ptr;
   pkAddSearchPath_t pkAddSearchPath_ptr;
   pkRealloc_t pkRealloc_ptr;
   pkReleaseHandle_t pkReleaseHandle_ptr;
@@ -88,6 +96,7 @@ typedef struct {
   pkNewClass_t pkNewClass_ptr;
   pkClassAddMethod_t pkClassAddMethod_ptr;
   pkModuleAddSource_t pkModuleAddSource_ptr;
+  pkModuleInitialize_t pkModuleInitialize_ptr;
   pkRunString_t pkRunString_ptr;
   pkRunFile_t pkRunFile_ptr;
   pkRunREPL_t pkRunREPL_ptr;
@@ -128,11 +137,14 @@ typedef struct {
   pkListInsert_t pkListInsert_ptr;
   pkListPop_t pkListPop_ptr;
   pkListLength_t pkListLength_ptr;
+  pkGetSubscript_t pkGetSubscript_ptr;
+  pkSetSubscript_t pkSetSubscript_ptr;
   pkCallFunction_t pkCallFunction_ptr;
   pkCallMethod_t pkCallMethod_ptr;
   pkGetAttribute_t pkGetAttribute_ptr;
   pkSetAttribute_t pkSetAttribute_ptr;
   pkImportModule_t pkImportModule_ptr;
+  pkGetMainModule_t pkGetMainModule_ptr;
 } PkNativeApi;
 
 #define PK_API_INIT_FN_NAME "pkInitApi" 
@@ -155,6 +167,8 @@ PkNativeApi pkMakeNativeAPI() {
   api.pkSetUserData_ptr = pkSetUserData;
   api.pkGetUserData_ptr = pkGetUserData;
   api.pkRegisterBuiltinFn_ptr = pkRegisterBuiltinFn;
+  api.pkGetBuiltinFn_ptr = pkGetBuiltinFn;
+  api.pkGetBuildinClass_ptr = pkGetBuildinClass;
   api.pkAddSearchPath_ptr = pkAddSearchPath;
   api.pkRealloc_ptr = pkRealloc;
   api.pkReleaseHandle_ptr = pkReleaseHandle;
@@ -164,6 +178,7 @@ PkNativeApi pkMakeNativeAPI() {
   api.pkNewClass_ptr = pkNewClass;
   api.pkClassAddMethod_ptr = pkClassAddMethod;
   api.pkModuleAddSource_ptr = pkModuleAddSource;
+  api.pkModuleInitialize_ptr = pkModuleInitialize;
   api.pkRunString_ptr = pkRunString;
   api.pkRunFile_ptr = pkRunFile;
   api.pkRunREPL_ptr = pkRunREPL;
@@ -204,11 +219,14 @@ PkNativeApi pkMakeNativeAPI() {
   api.pkListInsert_ptr = pkListInsert;
   api.pkListPop_ptr = pkListPop;
   api.pkListLength_ptr = pkListLength;
+  api.pkGetSubscript_ptr = pkGetSubscript;
+  api.pkSetSubscript_ptr = pkSetSubscript;
   api.pkCallFunction_ptr = pkCallFunction;
   api.pkCallMethod_ptr = pkCallMethod;
   api.pkGetAttribute_ptr = pkGetAttribute;
   api.pkSetAttribute_ptr = pkSetAttribute;
   api.pkImportModule_ptr = pkImportModule;
+  api.pkGetMainModule_ptr = pkGetMainModule;
 
   return api;
 }

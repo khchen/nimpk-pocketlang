@@ -259,6 +259,12 @@ PK_PUBLIC void* pkGetUserData(const PKVM* vm);
 PK_PUBLIC void pkRegisterBuiltinFn(PKVM* vm, const char* name, pkNativeFn fn,
                                    int arity, const char* docstring);
 
+// Get builtin function with the given [name] at slot [index].
+PK_PUBLIC bool pkGetBuiltinFn(PKVM* vm, const char* name, int index);
+
+// Get builtin class with the given [name] at slot [index].
+PK_PUBLIC bool pkGetBuildinClass(PKVM* vm, const char* name, int index);
+
 // Adds a new search paht to the VM, the path will be appended to the list of
 // search paths. Search path orders are the same as the registered order.
 // the last character of the path **must** be a path seperator '/' or '\\'.
@@ -315,6 +321,9 @@ PK_PUBLIC void pkClassAddMethod(PKVM* vm, PkHandle* cls,
 // functions and classes in that [source] to register on the module.
 PK_PUBLIC void pkModuleAddSource(PKVM* vm, PkHandle* module,
                                  const char* source);
+
+// Force to initialize an uninitialized module.
+PK_PUBLIC bool pkModuleInitialize(PKVM* vm, PkHandle* handle);
 
 // Run the source string. The [source] is expected to be valid till this
 // function returns.
@@ -495,6 +504,12 @@ PK_PUBLIC bool pkListPop(PKVM* vm, int list, int32_t index, int popped);
 // an assertion will fail.
 PK_PUBLIC uint32_t pkListLength(PKVM* vm, int list);
 
+// Returns the subscript value (ie. on[key]).
+PK_PUBLIC bool pkGetSubscript(PKVM* vm, int on, int key, int ret);
+
+// Set subscript [value] with the [key] (ie. on[key] = value).
+PK_PUBLIC bool pkSetSubscript(PKVM* vm, int on, int key, int value);
+
 // Calls a function at the [fn] slot, with [argc] argument where [argv] is the
 // slot of the first argument. [ret] is the slot index of the return value. if
 // [ret] < 0 the return value will be discarded.
@@ -520,6 +535,10 @@ PK_PUBLIC bool pkSetAttribute(PKVM* vm, int instance,
 // sepearation should be '/'. Example: to import module "foo.bar" the [path]
 // should be "foo/bar". On failure, it'll set an error and return false.
 PK_PUBLIC bool pkImportModule(PKVM* vm, const char* path, int index);
+
+// Returns the main module at the [index] slot.
+// Returns false if main module don't exist.
+PK_PUBLIC bool pkGetMainModule(PKVM* vm, int index);
 
 #ifdef __cplusplus
 } // extern "C"
