@@ -142,6 +142,7 @@ typedef enum {
   TK_BREAK,      // break
   TK_CONTINUE,   // continue
   TK_RETURN,     // return
+  TK_YIELD,      // yield
 
   TK_NAME,       // identifier
 
@@ -207,6 +208,7 @@ static _Keyword _keywords[] = {
   { "break",    5, TK_BREAK    },
   { "continue", 8, TK_CONTINUE },
   { "return",   6, TK_RETURN   },
+  { "yield",    5, TK_YIELD    },
 
   { NULL,       0, (_TokenType)(0) }, // Sentinel to mark the end of the array.
 };
@@ -499,6 +501,7 @@ struct Compiler {
   // Since the compiler manually call some builtin functions we need to cache
   // the index of the functions in order to prevent search for them each time.
   int bifn_list_join;
+  int bifn_yield;
 };
 
 typedef struct {
@@ -591,6 +594,10 @@ static void compilerInit(Compiler* compiler, PKVM* vm, const char* source,
   // Cache the required built functions.
   compiler->bifn_list_join = findBuiltinFunction(vm, "list_join", 9);
   ASSERT(compiler->bifn_list_join >= 0, OOPS);
+
+  compiler->bifn_yield = findBuiltinFunction(vm, "@yield", 6);
+  ASSERT(compiler->bifn_yield >= 0, OOPS);
+
 }
 
 /*****************************************************************************/
@@ -1603,6 +1610,7 @@ static void exprValue(Compiler* compiler);
 
 static void exprSelf(Compiler* compiler);
 static void exprSuper(Compiler* compiler);
+static void exprYield(Compiler* compiler);
 
 #define NO_RULE { NULL,          NULL,          PREC_NONE }
 #define NO_INFIX PREC_NONE
@@ -1684,6 +1692,7 @@ GrammarRule rules[] = {  // Prefix       Infix             Infix Precedence
   /* TK_BREAK      */   NO_RULE,
   /* TK_CONTINUE   */   NO_RULE,
   /* TK_RETURN     */   NO_RULE,
+  /* TK_YIELD      */ { exprYield,     NULL,             NO_INFIX },
   /* TK_NAME       */ { exprName,      NULL,             NO_INFIX },
   /* TK_NUMBER     */ { exprLiteral,   NULL,             NO_INFIX },
   /* TK_STRING     */ { exprLiteral,   NULL,             NO_INFIX },
@@ -1692,6 +1701,10 @@ GrammarRule rules[] = {  // Prefix       Infix             Infix Precedence
 
 static GrammarRule* getRule(_TokenType type) {
   return &(rules[(int)type]);
+}
+
+static inline bool isExprRule(_TokenType type) {
+  return rules[(int)type].prefix != NULL;
 }
 
 // FIXME:
@@ -2322,6 +2335,23 @@ static void exprSuper(Compiler* compiler) {
   moduleAddString(compiler->module, compiler->parser.vm,
                   name, name_length, &index);
   _compileCall(compiler, OP_SUPER_CALL, index);
+}
+
+static void exprYield(Compiler* compiler) {
+  _TokenType type = peek(compiler);
+  int argc = isExprRule(type) ? 1: 0;
+
+  emitOpcode(compiler, OP_PUSH_BUILTIN_FN);
+  emitByte(compiler, compiler->bifn_yield);
+  if (argc != 0) {
+    bool can_define = compiler->can_define;
+    compiler->can_define = false;
+    compileExpression(compiler);
+    compiler->can_define = can_define;
+  }
+  emitOpcode(compiler, OP_CALL);
+  emitByte(compiler, argc);
+  compilerChangeStack(compiler, -argc);
 }
 
 static void parsePrecedence(Compiler* compiler, Precedence precedence) {
