@@ -1000,6 +1000,20 @@ bool pkCallFunction(PKVM* vm, int fn, int argc, int argv, int ret) {
     return !VM_HAS_ERROR(vm);
   }
 
+  if (IS_OBJ_TYPE(SLOT(fn), OBJ_METHOD_BIND)) {
+    MethodBind* mb = (MethodBind*) AS_OBJ(SLOT(fn));
+    if (IS_UNDEF(mb->instance)) {
+      VM_SET_ERROR(vm, newString(vm, "Cannot call an unbound method."));
+      return false;
+    }
+
+    Var retval;
+    vmCallMethod(vm, mb->instance, mb->method, argc,
+                 vm->fiber->ret + argv, &retval);
+    if (ret >= 0) SET_SLOT(ret, retval);
+    return !VM_HAS_ERROR(vm);
+  }
+
   VM_SET_ERROR(vm, newString(vm, "Expected a Callable."));
   return false;
 }
