@@ -287,6 +287,20 @@ DEF(coreYield, "", "") {
   vmYieldFiber(vm, (argc == 1) ? &ARG(1) : NULL);
 }
 
+DEF(coreRaise, "", "") {
+
+  int argc = ARGC;
+  if (argc > 1) { // raise() or raise(message).
+    RET_ERR(newString(vm, "Invalid argument count."));
+  }
+
+  if (argc == 1 && ARG(1) != VAR_NULL) {
+    vm->fiber->error = ARG(1);
+    return;
+  }
+  VM_SET_ERROR(vm, newString(vm, "No exception to reraise."));
+}
+
 DEF(coreHelp,
   "help([value:Closure|MethodBind|Class]) -> Null",
   "It'll print the docstring the object and return.") {
@@ -449,22 +463,6 @@ DEF(coreAssert,
       VM_SET_ERROR(vm, newString(vm, "Assertion failed."));
     }
   }
-}
-
-DEF(coreRaise,
-  "raise([message:String]) -> Null",
-  "Raise a runtime error.") {
-
-  int argc = ARGC;
-  if (argc > 1) { // raise() or raise(message).
-    RET_ERR(newString(vm, "Invalid argument count."));
-  }
-
-  if (argc == 1 && ARG(1) != VAR_NULL) {
-    vm->fiber->error = ARG(1);
-    return;
-  }
-  VM_SET_ERROR(vm, newString(vm, "No exception to reraise."));
 }
 
 DEF(coreBin,
@@ -711,10 +709,10 @@ static void initializeBuiltinFunctions(PKVM* vm) {
                       (int)strlen(name), argc, fn, DOCSTRING(fn));
   // General functions.
   INITIALIZE_BUILTIN_FN("@yield",    coreYield,   -1);
+  INITIALIZE_BUILTIN_FN("@raise",    coreRaise,   -1);
   INITIALIZE_BUILTIN_FN("help",      coreHelp,    -1);
   INITIALIZE_BUILTIN_FN("dir",       coreDir,      1);
   INITIALIZE_BUILTIN_FN("assert",    coreAssert,  -1);
-  INITIALIZE_BUILTIN_FN("raise",     coreRaise,   -1);
   INITIALIZE_BUILTIN_FN("bin",       coreBin,      1);
   INITIALIZE_BUILTIN_FN("hex",       coreHex,      1);
   INITIALIZE_BUILTIN_FN("str",       coreToString, 1);
