@@ -1,6 +1,6 @@
 def test1
   isRaise = fn(flag)
-    if flag then raise("NOT OK") end
+    if flag then raise "NOT OK" end
     return "OK"
   end
 
@@ -58,12 +58,12 @@ end
 
 def test2
   try fn # ignore error
-    raise("some error")
+    raise "some error"
   end
 
   result = ""
   tryExcept(fn
-    raise("some error")
+    raise "some error"
     result += "Try"
 
   end, fn(err) # except
@@ -76,7 +76,7 @@ def test2
 
   result = ""
   tryExceptFinally(fn
-    raise("some error")
+    raise "some error"
     result += "Try"
 
   end, fn(err) # except
@@ -108,7 +108,7 @@ def test3
       run fn
         run fn
           result += "1"
-          raise()
+          raise
           print("")
         end
         result += "2" # UNREACHABLE
@@ -125,12 +125,12 @@ def test3
       try fn
         run fn
           result += "1"
-          raise()
+          raise
         end
         result += "2" # UNREACHABLE
       end
       result += "3"
-      raise()
+      raise
     end
     result += "4" # UNREACHABLE
   end

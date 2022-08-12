@@ -143,6 +143,7 @@ typedef enum {
   TK_CONTINUE,   // continue
   TK_RETURN,     // return
   TK_YIELD,      // yield
+  TK_RAISE,      // raise
 
   TK_NAME,       // identifier
 
@@ -209,6 +210,7 @@ static _Keyword _keywords[] = {
   { "continue", 8, TK_CONTINUE },
   { "return",   6, TK_RETURN   },
   { "yield",    5, TK_YIELD    },
+  { "raise",    5, TK_RAISE    },
 
   { NULL,       0, (_TokenType)(0) }, // Sentinel to mark the end of the array.
 };
@@ -502,6 +504,7 @@ struct Compiler {
   // the index of the functions in order to prevent search for them each time.
   int bifn_list_join;
   int bifn_yield;
+  int bifn_raise;
 };
 
 typedef struct {
@@ -598,6 +601,8 @@ static void compilerInit(Compiler* compiler, PKVM* vm, const char* source,
   compiler->bifn_yield = findBuiltinFunction(vm, "@yield", 6);
   ASSERT(compiler->bifn_yield >= 0, OOPS);
 
+  compiler->bifn_raise = findBuiltinFunction(vm, "@raise", 6);
+  ASSERT(compiler->bifn_raise >= 0, OOPS);
 }
 
 /*****************************************************************************/
@@ -1638,7 +1643,7 @@ static void exprValue(Compiler* compiler);
 
 static void exprSelf(Compiler* compiler);
 static void exprSuper(Compiler* compiler);
-static void exprYield(Compiler* compiler);
+static void exprCommand(Compiler* compiler);
 
 #define NO_RULE { NULL,          NULL,          PREC_NONE }
 #define NO_INFIX PREC_NONE
@@ -1720,7 +1725,8 @@ GrammarRule rules[] = {  // Prefix       Infix             Infix Precedence
   /* TK_BREAK      */   NO_RULE,
   /* TK_CONTINUE   */   NO_RULE,
   /* TK_RETURN     */   NO_RULE,
-  /* TK_YIELD      */ { exprYield,     NULL,             NO_INFIX },
+  /* TK_YIELD      */ { exprCommand,   NULL,             NO_INFIX },
+  /* TK_RAISE      */ { exprCommand,   NULL,             NO_INFIX },
   /* TK_NAME       */ { exprName,      NULL,             NO_INFIX },
   /* TK_NUMBER     */ { exprLiteral,   NULL,             NO_INFIX },
   /* TK_STRING     */ { exprLiteral,   NULL,             NO_INFIX },
@@ -1882,6 +1888,9 @@ static bool _compileOptionalParanCall(Compiler* compiler, int method) {
     case TK_NUMBER:
     case TK_STRING:
     case TK_STRING_INTERP:
+    case TK_YIELD:
+    case TK_RAISE:
+    case TK_IF:
       break;
     default:
       return false;
@@ -2398,12 +2407,24 @@ static void exprSuper(Compiler* compiler) {
   _compileCall(compiler, OP_SUPER_CALL, index);
 }
 
-static void exprYield(Compiler* compiler) {
+static void exprCommand(Compiler* compiler) {
+  int command;
+  switch (compiler->parser.previous.type) {
+    case TK_YIELD:
+      command = compiler->bifn_yield;
+      break;
+    case TK_RAISE:
+      command = compiler->bifn_raise;
+      break;
+    default:
+      UNREACHABLE();
+  }
+
   _TokenType type = peek(compiler);
   int argc = isExprRule(type) ? 1: 0;
 
   emitOpcode(compiler, OP_PUSH_BUILTIN_FN);
-  emitByte(compiler, compiler->bifn_yield);
+  emitByte(compiler, command);
   if (argc != 0) {
     bool can_define = compiler->can_define;
     compiler->can_define = false;
