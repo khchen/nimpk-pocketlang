@@ -28,6 +28,7 @@ TEST_SUITE = {
     "lang/fibers.pk",
     "lang/functions.pk",
     "lang/import.pk",
+    "lang/try.pk",
   ),
 
   "Modules Test" : (

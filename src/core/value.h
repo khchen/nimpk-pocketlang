@@ -471,6 +471,8 @@ typedef enum {
 struct Fiber {
   Object _super;
 
+  bool trying;
+
   FiberState state;
 
   // The root closure of the fiber.
@@ -514,7 +516,7 @@ struct Fiber {
   Fiber *caller, *native;
 
   // Runtime error initially NULL, heap allocated.
-  String* error;
+  Var error;
 };
 
 typedef enum {
@@ -690,8 +692,8 @@ String* stringStrip(PKVM* vm, String* self);
 String* stringReplace(PKVM* vm, String* self,
                       String* old, String* new_, int count);
 
-// Split the string into a list of string separated by [sep]. String [sep] must
-// not be of length 0 otherwise an assertion will fail.
+// Split the string into a list of string separated by [sep].
+// If [sep] == "", split string into characters.
 List* stringSplit(PKVM* vm, String* self, String* sep);
 
 // Creates a new string from the arguments. This is intended for internal
@@ -719,6 +721,9 @@ String* stringJoin(PKVM* vm, String* str1, String* str2);
 // Insert [value] to the list at [index] and shift down the rest of the
 // elements.
 void listInsert(PKVM* vm, List* self, uint32_t index, Var value);
+
+// Shrink the size if it's too much excess.
+void listShrink(PKVM* vm, List* self);
 
 // Remove and return element at [index].
 Var listRemoveAt(PKVM* vm, List* self, uint32_t index);

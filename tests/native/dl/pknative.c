@@ -14,6 +14,8 @@ typedef void (*pkFreeVM_t)(PKVM*);
 typedef void (*pkSetUserData_t)(PKVM*, void*);
 typedef void* (*pkGetUserData_t)(const PKVM*);
 typedef void (*pkRegisterBuiltinFn_t)(PKVM*, const char*, pkNativeFn, int, const char*);
+typedef bool (*pkGetBuiltinFn_t)(PKVM*, const char*, int);
+typedef bool (*pkGetBuildinClass_t)(PKVM*, const char*, int);
 typedef void (*pkAddSearchPath_t)(PKVM*, const char*);
 typedef void* (*pkRealloc_t)(PKVM*, void*, size_t);
 typedef void (*pkReleaseHandle_t)(PKVM*, PkHandle*);
@@ -23,10 +25,13 @@ typedef void (*pkModuleAddFunction_t)(PKVM*, PkHandle*, const char*, pkNativeFn,
 typedef PkHandle* (*pkNewClass_t)(PKVM*, const char*, PkHandle*, PkHandle*, pkNewInstanceFn, pkDeleteInstanceFn, const char*);
 typedef void (*pkClassAddMethod_t)(PKVM*, PkHandle*, const char*, pkNativeFn, int, const char*);
 typedef void (*pkModuleAddSource_t)(PKVM*, PkHandle*, const char*);
+typedef bool (*pkModuleInitialize_t)(PKVM*, PkHandle*);
 typedef PkResult (*pkRunString_t)(PKVM*, const char*);
 typedef PkResult (*pkRunFile_t)(PKVM*, const char*);
 typedef PkResult (*pkRunREPL_t)(PKVM*);
 typedef void (*pkSetRuntimeError_t)(PKVM*, const char*);
+typedef void (*pkSetRuntimeErrorObj_t)(PKVM*, int);
+typedef void (*pkGetRuntimeError_t)(PKVM*, int);
 typedef void* (*pkGetSelf_t)(const PKVM*);
 typedef int (*pkGetArgc_t)(const PKVM*);
 typedef bool (*pkCheckArgcRange_t)(PKVM*, int, int, int);
@@ -61,11 +66,14 @@ typedef void (*pkNewMap_t)(PKVM*, int);
 typedef bool (*pkListInsert_t)(PKVM*, int, int32_t, int);
 typedef bool (*pkListPop_t)(PKVM*, int, int32_t, int);
 typedef uint32_t (*pkListLength_t)(PKVM*, int);
+typedef bool (*pkGetSubscript_t)(PKVM*, int, int, int);
+typedef bool (*pkSetSubscript_t)(PKVM*, int, int, int);
 typedef bool (*pkCallFunction_t)(PKVM*, int, int, int, int);
 typedef bool (*pkCallMethod_t)(PKVM*, int, const char*, int, int, int);
 typedef bool (*pkGetAttribute_t)(PKVM*, int, const char*, int);
 typedef bool (*pkSetAttribute_t)(PKVM*, int, const char*, int);
 typedef bool (*pkImportModule_t)(PKVM*, const char*, int);
+typedef bool (*pkGetMainModule_t)(PKVM*, int);
 
 typedef struct {
   pkNewConfiguration_t pkNewConfiguration_ptr;
@@ -74,6 +82,8 @@ typedef struct {
   pkSetUserData_t pkSetUserData_ptr;
   pkGetUserData_t pkGetUserData_ptr;
   pkRegisterBuiltinFn_t pkRegisterBuiltinFn_ptr;
+  pkGetBuiltinFn_t pkGetBuiltinFn_ptr;
+  pkGetBuildinClass_t pkGetBuildinClass_ptr;
   pkAddSearchPath_t pkAddSearchPath_ptr;
   pkRealloc_t pkRealloc_ptr;
   pkReleaseHandle_t pkReleaseHandle_ptr;
@@ -83,10 +93,13 @@ typedef struct {
   pkNewClass_t pkNewClass_ptr;
   pkClassAddMethod_t pkClassAddMethod_ptr;
   pkModuleAddSource_t pkModuleAddSource_ptr;
+  pkModuleInitialize_t pkModuleInitialize_ptr;
   pkRunString_t pkRunString_ptr;
   pkRunFile_t pkRunFile_ptr;
   pkRunREPL_t pkRunREPL_ptr;
   pkSetRuntimeError_t pkSetRuntimeError_ptr;
+  pkSetRuntimeErrorObj_t pkSetRuntimeErrorObj_ptr;
+  pkGetRuntimeError_t pkGetRuntimeError_ptr;
   pkGetSelf_t pkGetSelf_ptr;
   pkGetArgc_t pkGetArgc_ptr;
   pkCheckArgcRange_t pkCheckArgcRange_ptr;
@@ -121,11 +134,14 @@ typedef struct {
   pkListInsert_t pkListInsert_ptr;
   pkListPop_t pkListPop_ptr;
   pkListLength_t pkListLength_ptr;
+  pkGetSubscript_t pkGetSubscript_ptr;
+  pkSetSubscript_t pkSetSubscript_ptr;
   pkCallFunction_t pkCallFunction_ptr;
   pkCallMethod_t pkCallMethod_ptr;
   pkGetAttribute_t pkGetAttribute_ptr;
   pkSetAttribute_t pkSetAttribute_ptr;
   pkImportModule_t pkImportModule_ptr;
+  pkGetMainModule_t pkGetMainModule_ptr;
 } PkNativeApi;
 
 static PkNativeApi pk_api;
@@ -137,6 +153,8 @@ PK_EXPORT void pkInitApi(PkNativeApi* api) {
   pk_api.pkSetUserData_ptr = api->pkSetUserData_ptr;
   pk_api.pkGetUserData_ptr = api->pkGetUserData_ptr;
   pk_api.pkRegisterBuiltinFn_ptr = api->pkRegisterBuiltinFn_ptr;
+  pk_api.pkGetBuiltinFn_ptr = api->pkGetBuiltinFn_ptr;
+  pk_api.pkGetBuildinClass_ptr = api->pkGetBuildinClass_ptr;
   pk_api.pkAddSearchPath_ptr = api->pkAddSearchPath_ptr;
   pk_api.pkRealloc_ptr = api->pkRealloc_ptr;
   pk_api.pkReleaseHandle_ptr = api->pkReleaseHandle_ptr;
@@ -146,10 +164,13 @@ PK_EXPORT void pkInitApi(PkNativeApi* api) {
   pk_api.pkNewClass_ptr = api->pkNewClass_ptr;
   pk_api.pkClassAddMethod_ptr = api->pkClassAddMethod_ptr;
   pk_api.pkModuleAddSource_ptr = api->pkModuleAddSource_ptr;
+  pk_api.pkModuleInitialize_ptr = api->pkModuleInitialize_ptr;
   pk_api.pkRunString_ptr = api->pkRunString_ptr;
   pk_api.pkRunFile_ptr = api->pkRunFile_ptr;
   pk_api.pkRunREPL_ptr = api->pkRunREPL_ptr;
   pk_api.pkSetRuntimeError_ptr = api->pkSetRuntimeError_ptr;
+  pk_api.pkSetRuntimeErrorObj_ptr = api->pkSetRuntimeErrorObj_ptr;
+  pk_api.pkGetRuntimeError_ptr = api->pkGetRuntimeError_ptr;
   pk_api.pkGetSelf_ptr = api->pkGetSelf_ptr;
   pk_api.pkGetArgc_ptr = api->pkGetArgc_ptr;
   pk_api.pkCheckArgcRange_ptr = api->pkCheckArgcRange_ptr;
@@ -184,11 +205,14 @@ PK_EXPORT void pkInitApi(PkNativeApi* api) {
   pk_api.pkListInsert_ptr = api->pkListInsert_ptr;
   pk_api.pkListPop_ptr = api->pkListPop_ptr;
   pk_api.pkListLength_ptr = api->pkListLength_ptr;
+  pk_api.pkGetSubscript_ptr = api->pkGetSubscript_ptr;
+  pk_api.pkSetSubscript_ptr = api->pkSetSubscript_ptr;
   pk_api.pkCallFunction_ptr = api->pkCallFunction_ptr;
   pk_api.pkCallMethod_ptr = api->pkCallMethod_ptr;
   pk_api.pkGetAttribute_ptr = api->pkGetAttribute_ptr;
   pk_api.pkSetAttribute_ptr = api->pkSetAttribute_ptr;
   pk_api.pkImportModule_ptr = api->pkImportModule_ptr;
+  pk_api.pkGetMainModule_ptr = api->pkGetMainModule_ptr;
 }
 
 PkConfiguration pkNewConfiguration() {
@@ -213,6 +237,14 @@ void* pkGetUserData(const PKVM* vm) {
 
 void pkRegisterBuiltinFn(PKVM* vm, const char* name, pkNativeFn fn, int arity, const char* docstring) {
   pk_api.pkRegisterBuiltinFn_ptr(vm, name, fn, arity, docstring);
+}
+
+bool pkGetBuiltinFn(PKVM* vm, const char* name, int index) {
+  return pk_api.pkGetBuiltinFn_ptr(vm, name, index);
+}
+
+bool pkGetBuildinClass(PKVM* vm, const char* name, int index) {
+  return pk_api.pkGetBuildinClass_ptr(vm, name, index);
 }
 
 void pkAddSearchPath(PKVM* vm, const char* path) {
@@ -251,6 +283,10 @@ void pkModuleAddSource(PKVM* vm, PkHandle* module, const char* source) {
   pk_api.pkModuleAddSource_ptr(vm, module, source);
 }
 
+bool pkModuleInitialize(PKVM* vm, PkHandle* handle) {
+  return pk_api.pkModuleInitialize_ptr(vm, handle);
+}
+
 PkResult pkRunString(PKVM* vm, const char* source) {
   return pk_api.pkRunString_ptr(vm, source);
 }
@@ -265,6 +301,14 @@ PkResult pkRunREPL(PKVM* vm) {
 
 void pkSetRuntimeError(PKVM* vm, const char* message) {
   pk_api.pkSetRuntimeError_ptr(vm, message);
+}
+
+void pkSetRuntimeErrorObj(PKVM* vm, int slot) {
+  pk_api.pkSetRuntimeErrorObj_ptr(vm, slot);
+}
+
+void pkGetRuntimeError(PKVM* vm, int slot) {
+  pk_api.pkGetRuntimeError_ptr(vm, slot);
 }
 
 void* pkGetSelf(const PKVM* vm) {
@@ -403,6 +447,14 @@ uint32_t pkListLength(PKVM* vm, int list) {
   return pk_api.pkListLength_ptr(vm, list);
 }
 
+bool pkGetSubscript(PKVM* vm, int on, int key, int ret) {
+  return pk_api.pkGetSubscript_ptr(vm, on, key, ret);
+}
+
+bool pkSetSubscript(PKVM* vm, int on, int key, int value) {
+  return pk_api.pkSetSubscript_ptr(vm, on, key, value);
+}
+
 bool pkCallFunction(PKVM* vm, int fn, int argc, int argv, int ret) {
   return pk_api.pkCallFunction_ptr(vm, fn, argc, argv, ret);
 }
@@ -421,4 +473,8 @@ bool pkSetAttribute(PKVM* vm, int instance, const char* name, int value) {
 
 bool pkImportModule(PKVM* vm, const char* path, int index) {
   return pk_api.pkImportModule_ptr(vm, path, index);
+}
+
+bool pkGetMainModule(PKVM* vm, int index) {
+  return pk_api.pkGetMainModule_ptr(vm, index);
 }
