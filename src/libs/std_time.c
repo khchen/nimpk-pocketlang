@@ -47,6 +47,23 @@ DEF(_timeSleep,
 #endif
 }
 
+DEF(_timeMonotime,
+  "monotime() -> Number",
+  "Returns monotonic timestamps.") {
+
+  #if defined(_WIN32) || defined(__NT__)
+    uint64_t ticks, freq;
+    QueryPerformanceCounter((LARGE_INTEGER*) &ticks);
+    QueryPerformanceFrequency((LARGE_INTEGER*) &freq);
+    pkSetSlotNumber(vm, 0, (double) ticks * (1000000000 / freq));
+  #elif defined(__linux__)
+    struct timespec tt;
+    clock_gettime(CLOCK_MONOTONIC, &tt);
+    pkSetSlotNumber(vm, 0, (double) tt.tv_sec * 1000000000 + tt.tv_nsec);
+  #else
+  #endif
+}
+
 /*****************************************************************************/
 /* MODULE REGISTER                                                           */
 /*****************************************************************************/
@@ -57,6 +74,7 @@ void registerModuleTime(PKVM* vm) {
   REGISTER_FN(time, "epoch", _timeEpoch, 0);
   REGISTER_FN(time, "sleep", _timeSleep, 1);
   REGISTER_FN(time, "clock", _timeClock, 0);
+  REGISTER_FN(time, "monotime", _timeMonotime, 0);
 
   pkRegisterModule(vm, time);
   pkReleaseHandle(vm, time);
