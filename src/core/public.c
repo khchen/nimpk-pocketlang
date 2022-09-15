@@ -15,6 +15,7 @@
 #include "utils.h"
 #include "value.h"
 #include "vm.h"
+#include "debug.h"
 #endif
 
 // FIXME: Document this or Find a better way.
@@ -625,6 +626,40 @@ void pkGetRuntimeError(PKVM* vm, int slot) {
   CHECK_FIBER_EXISTS(vm);
   VALIDATE_SLOT_INDEX(slot);
   SET_SLOT(slot, vm->fiber->error);
+}
+
+static void output(PKVM* vm, const char* text) {
+  pkByteBuffer* pbuff = vm->config.user_data;
+  pkByteBufferAddString(pbuff, vm, text, strlen(text));
+}
+
+void pkGetRuntimeStackReport(PKVM* vm, int slot) {
+  CHECK_FIBER_EXISTS(vm);
+  VALIDATE_SLOT_INDEX(slot);
+
+  bool is_first = false;
+  pkWriteFn backupfn = vm->config.stderr_write;
+  void* backupdata = vm->config.user_data;
+
+  pkByteBuffer buff;
+  pkByteBufferInit(&buff);
+
+  vm->config.stderr_write = output;
+  vm->config.user_data = &buff;
+
+  Fiber* fb = vm->perpetrator;
+  while (fb != NULL && fb != vm->fiber) {
+    reportRuntimeError(vm, fb, &is_first);
+    fb = fb->native;
+  }
+  reportRuntimeError(vm, vm->fiber, &is_first);
+
+  vm->config.stderr_write = backupfn;
+  vm->config.user_data = backupdata;
+
+  String* str = newStringLength(vm, (const char*)buff.data, buff.count);
+  pkByteBufferClear(&buff, vm);
+  SET_SLOT(slot, VAR_OBJ(str));
 }
 
 void* pkGetSelf(const PKVM* vm) {

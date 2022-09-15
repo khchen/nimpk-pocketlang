@@ -356,6 +356,9 @@ PK_PUBLIC void pkSetRuntimeErrorObj(PKVM* vm, int slot);
 // Get the runtime error of VM at [slot].
 PK_PUBLIC void pkGetRuntimeError(PKVM* vm, int slot);
 
+// Report the runtime error via stderr_write in PkConfiguration.
+PK_PUBLIC void pkGetRuntimeStackReport(PKVM* vm, int slot);
+
 // Returns native [self] of the current method as a void*.
 PK_PUBLIC void* pkGetSelf(const PKVM* vm);
 

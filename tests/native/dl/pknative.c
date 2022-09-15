@@ -32,6 +32,7 @@ typedef PkResult (*pkRunREPL_t)(PKVM*);
 typedef void (*pkSetRuntimeError_t)(PKVM*, const char*);
 typedef void (*pkSetRuntimeErrorObj_t)(PKVM*, int);
 typedef void (*pkGetRuntimeError_t)(PKVM*, int);
+typedef void (*pkGetRuntimeStackReport_t)(PKVM*, int);
 typedef void* (*pkGetSelf_t)(const PKVM*);
 typedef int (*pkGetArgc_t)(const PKVM*);
 typedef bool (*pkCheckArgcRange_t)(PKVM*, int, int, int);
@@ -100,6 +101,7 @@ typedef struct {
   pkSetRuntimeError_t pkSetRuntimeError_ptr;
   pkSetRuntimeErrorObj_t pkSetRuntimeErrorObj_ptr;
   pkGetRuntimeError_t pkGetRuntimeError_ptr;
+  pkGetRuntimeStackReport_t pkGetRuntimeStackReport_ptr;
   pkGetSelf_t pkGetSelf_ptr;
   pkGetArgc_t pkGetArgc_ptr;
   pkCheckArgcRange_t pkCheckArgcRange_ptr;
@@ -171,6 +173,7 @@ PK_EXPORT void pkInitApi(PkNativeApi* api) {
   pk_api.pkSetRuntimeError_ptr = api->pkSetRuntimeError_ptr;
   pk_api.pkSetRuntimeErrorObj_ptr = api->pkSetRuntimeErrorObj_ptr;
   pk_api.pkGetRuntimeError_ptr = api->pkGetRuntimeError_ptr;
+  pk_api.pkGetRuntimeStackReport_ptr = api->pkGetRuntimeStackReport_ptr;
   pk_api.pkGetSelf_ptr = api->pkGetSelf_ptr;
   pk_api.pkGetArgc_ptr = api->pkGetArgc_ptr;
   pk_api.pkCheckArgcRange_ptr = api->pkCheckArgcRange_ptr;
@@ -309,6 +312,10 @@ void pkSetRuntimeErrorObj(PKVM* vm, int slot) {
 
 void pkGetRuntimeError(PKVM* vm, int slot) {
   pk_api.pkGetRuntimeError_ptr(vm, slot);
+}
+
+void pkGetRuntimeStackReport(PKVM* vm, int slot) {
+  pk_api.pkGetRuntimeStackReport_ptr(vm, slot);
 }
 
 void* pkGetSelf(const PKVM* vm) {

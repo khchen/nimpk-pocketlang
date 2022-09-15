@@ -491,6 +491,13 @@ Var vmImportModule(PKVM* vm, String* from, String* path) {
 
   if (_resolved == NULL) { // Can't resolve a relative module.
     pkRealloc(vm, _resolved, 0);
+
+    // try to import dll module anyway (if the dll in system path,etc.)
+    Module* module = _importDL(vm, path, path);
+    if (module != NULL) {
+      return VAR_OBJ(module);
+    }
+
     VM_SET_ERROR(vm, stringFormat(vm, "Cannot import module '@'", path));
     return VAR_NULL;
   }
@@ -778,7 +785,6 @@ static void vmReportError(PKVM* vm) {
   // Don't report it but pass the error back to the native fiber.
   if (vm->fiber->native != NULL) {
     vm->fiber->native->error = vm->fiber->error;
-
   } else {
     // If there is no native fiber, OK, we report it.
     // The error may be not in current fiber/stackframe,
