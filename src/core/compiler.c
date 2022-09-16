@@ -65,6 +65,7 @@ typedef enum {
   TK_SEMICOLLON, // ;
   TK_HASH,       // #
   TK_LPARAN,     // (
+  TK_LPARANEX,   // ' ' + (
   TK_RPARAN,     // )
   TK_LBRACKET,   // [
   TK_LBRACKETEX, // ' ' + [
@@ -1135,7 +1136,15 @@ static void lexToken(Compiler* compiler) {
       case ':': setNextToken(parser, TK_COLLON); return;
       case ';': setNextToken(parser, TK_SEMICOLLON); return;
       case '#': skipLineComment(parser); break;
-      case '(': setNextToken(parser, TK_LPARAN); return;
+      case '(': {
+        char c = peekPrevChar(parser);
+        if (c == '\t' || c == ' ') {
+          setNextToken(parser, TK_LPARANEX); return;
+        }
+        else {
+          setNextToken(parser, TK_LPARAN); return;
+        }
+      }
       case ')': setNextToken(parser, TK_RPARAN); return;
       case '[': {
         char c = peekPrevChar(parser);
@@ -1659,6 +1668,7 @@ GrammarRule rules[] = {  // Prefix       Infix             Infix Precedence
   /* TK_SEMICOLLON */   NO_RULE,
   /* TK_HASH       */   NO_RULE,
   /* TK_LPARAN     */ { exprGrouping,  exprCall,         PREC_CALL },
+  /* TK_LPARANEX   */ { exprGrouping,  exprCall,         PREC_CALL },
   /* TK_RPARAN     */   NO_RULE,
   /* TK_LBRACKET   */ { exprList,      exprSubscript,    PREC_SUBSCRIPT },
   /* TK_LBRACKETEX */ { exprList,      exprSubscript,    PREC_SUBSCRIPT },
@@ -1891,6 +1901,7 @@ static bool _compileOptionalParanCall(Compiler* compiler, int method) {
     case TK_YIELD:
     case TK_RAISE:
     case TK_IF:
+    case TK_LPARANEX:
       break;
     default:
       return false;
@@ -2249,7 +2260,7 @@ static void exprAttrib(Compiler* compiler) {
                   name, length, &index);
 
   // Check if it's a method call.
-  if (match(compiler, TK_LPARAN)) {
+  if (match(compiler, TK_LPARAN) || match(compiler, TK_LPARANEX)) {
     _compileCall(compiler, OP_METHOD_CALL, index);
     return;
   }
@@ -2386,13 +2397,14 @@ static void exprSuper(Compiler* compiler) {
   const char* name = compiler->func->ptr->name;
   int name_length = -1;
 
-  if (!match(compiler, TK_LPARAN)) { // super.method().
+  if (!match(compiler, TK_LPARAN) && !match(compiler, TK_LPARANEX)) { // super.method().
     consume(compiler, TK_DOT, "Invalid use of 'super'.");
 
     consume(compiler, TK_NAME, "Expected a method name after 'super'.");
     name = compiler->parser.previous.start;
     name_length = compiler->parser.previous.length;
 
+    // only allow super.method(), fail on super.method ()
     consume(compiler, TK_LPARAN, "Expected symbol '('.");
 
   } else { // super().
@@ -2480,7 +2492,7 @@ static void parsePrecedence(Compiler* compiler, Precedence precedence) {
     infix(compiler);
 
     // TK_LPARAN '(' as infix is the call operator.
-    compiler->is_last_call = (op == TK_LPARAN);
+    compiler->is_last_call = (op == TK_LPARAN || op == TK_LPARANEX);
   }
 
   compiler->l_value = l_value;
@@ -2959,7 +2971,7 @@ static void compileFunction(Compiler* compiler, FuncType fn_type) {
   compilerEnterBlock(compiler); // Parameter depth.
 
   // Parameter list is optional.
-  if (match(compiler, TK_LPARAN) && !match(compiler, TK_RPARAN)) {
+  if ((match(compiler, TK_LPARAN) || match(compiler, TK_LPARANEX)) && !match(compiler, TK_RPARAN)) {
 
     do {
       skipNewLines(compiler);
