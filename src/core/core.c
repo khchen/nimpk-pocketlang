@@ -2538,6 +2538,9 @@ Var varGetAttrib(PKVM* vm, Var on, String* attrib, bool skipGetter) {
             return VAR_OBJ(newString(vm, ""));
           }
 
+        case CHECK_HASH("_dict", 0x204b86e2):
+          return VAR_OBJ(cls->static_attribs);
+
         case CHECK_HASH("name", 0x8d39bde6):
           return VAR_OBJ(newString(vm, cls->name->data));
 
@@ -2547,6 +2550,7 @@ Var varGetAttrib(PKVM* vm, Var on, String* attrib, bool skipGetter) {
           } else {
             return VAR_NULL;
           }
+
       }
 
       Var value = mapGet(cls->static_attribs, VAR_OBJ(attrib));
@@ -2574,6 +2578,10 @@ Var varGetAttrib(PKVM* vm, Var on, String* attrib, bool skipGetter) {
           vmCallMethod(vm, on, getter, 1, &attrib_name, &value);
           return value; // If any error occure, it was already set.
         }
+      }
+
+      if (attrib->hash == CHECK_HASH("_dict", 0x204b86e2)) {
+        return VAR_OBJ(inst->attribs);
       }
 
       value = mapGet(inst->attribs, VAR_OBJ(attrib));

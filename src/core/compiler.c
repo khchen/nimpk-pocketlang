@@ -788,6 +788,7 @@ static void eatString(Compiler* compiler, bool single_quote, bool is_raw) {
         case 'n':  pkByteBufferWrite(&buff, parser->vm, '\n'); break;
         case 'r':  pkByteBufferWrite(&buff, parser->vm, '\r'); break;
         case 't':  pkByteBufferWrite(&buff, parser->vm, '\t'); break;
+        case '0':  pkByteBufferWrite(&buff, parser->vm, '\0'); break;
         case '\n': break; // Just ignore the next line.
 
         // '$' In pocketlang string is used for interpolation.
