@@ -47,7 +47,11 @@ void* vmRealloc(PKVM* vm, void* memory, size_t old_size, size_t new_size) {
     vm->collecting_garbage = false;
   }
 
-  return vm->config.realloc_fn(memory, new_size, vm->config.user_data);
+  void* new_ptr = vm->config.realloc_fn(memory, new_size, vm->config.user_data);
+  if (new_ptr != NULL && old_size < new_size) {
+    memset(new_ptr + old_size, 0, new_size - old_size);
+  }
+  return new_ptr;
 }
 
 void vmPushTempRef(PKVM* vm, Object* obj) {
@@ -803,6 +807,15 @@ static void vmReportError(PKVM* vm) {
  * RUNTIME                                                                    *
  *****************************************************************************/
 
+// Check if current fiber is running in "trying" mode.
+bool isTrying(Fiber* fiber) {
+  while (fiber != NULL) {
+    if (fiber->trying) return true;
+    fiber = fiber->caller;
+  }
+  return false;
+}
+
 PkResult vmRunFiber(PKVM* vm, Fiber* fiber_) {
 
   // Set the fiber as the VM's current fiber (another root object) to prevent
@@ -855,15 +868,6 @@ PkResult vmRunFiber(PKVM* vm, Fiber* fiber_) {
     fiber = caller;                                                 \
     vm->fiber = fiber;                                              \
   } while (false)
-
-// Check if current fiber is running in "trying" mode.
-bool isTrying(Fiber* fiber) {
-  while (fiber != NULL) {
-    if (fiber->trying) return true;
-    fiber = fiber->caller;
-  }
-  return false;
-}
 
 // Check if any runtime error exists and if so returns RESULT_RUNTIME_ERROR.
 #define CHECK_ERROR()                     \

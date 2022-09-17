@@ -17,8 +17,6 @@ void registerModuleIO(PKVM* vm);
 void registerModulePath(PKVM* vm);
 void registerModuleOS(PKVM* vm);
 void registerModuleJson(PKVM* vm);
-void registerModuleDummy(PKVM* vm);
-void registerModuleTerm(PKVM* vm);
 void registerModuleRe(PKVM* vm);
 void registerModuleAlgorithm(PKVM* vm);
 void registerModuleRandom(PKVM* vm);
@@ -34,8 +32,6 @@ void registerLibs(PKVM* vm) {
   registerModulePath(vm);
   registerModuleOS(vm);
   registerModuleJson(vm);
-  registerModuleDummy(vm);
-  registerModuleTerm(vm);
   registerModuleRe(vm);
   registerModuleAlgorithm(vm);
   registerModuleRandom(vm);
@@ -43,5 +39,4 @@ void registerLibs(PKVM* vm) {
 
 // Cleanup the modules.
 void cleanupLibs(PKVM* vm) {
-  cleanupModuleTerm(vm);
 }

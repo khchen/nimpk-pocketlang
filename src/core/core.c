@@ -812,7 +812,7 @@ DEF(coreCompile,
 
 DEF(coreEval,
   "eval(expression:String) -> Var",
-  "Evaluate an expression and returns the result.\n"
+  "Evaluates an expression and returns the result.\n"
   "Only global variables can be used in the expression.") {
 
   String* expr;

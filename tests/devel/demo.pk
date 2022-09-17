@@ -1,0 +1,593 @@
+# demonstrate all enhancements compare to original pocketlang
+
+# ----------------------------------
+# String, List, and Map enhancements
+# ----------------------------------
+
+# raw string literal
+assert r"c:\windows\system32" == "c:\\windows\\system32"
+
+# \0 to represent null char
+assert "\0\0\0" == "\x00\x00\x00"
+
+# String.split allows empty argument and null char
+assert "abcde".split() == ["a", "b", "c", "d", "e"]
+assert "a\0b\0c\0d\0e".split("\0") == ["a", "b", "c", "d", "e"]
+
+# string format via modulo operator
+# allow %f, %F, %e, %E, %g, %G, %d, %i, %u, %x, %X, %o, %b, %c, %s
+# %c can encode unicode codepoint into utf8 string
+assert "Number is %d, type is %s" % [13, "cat"] == "Number is 13, type is cat"
+assert "[%10s]" % "carrot" == "[    carrot]"
+assert "[%-10s]" % "carrot" == "[carrot    ]"
+assert "Result is %.2f" % 12.3456 == "Result is 12.35"
+assert "%c%c" % [0x4e2d, 0x6587] == "中文"
+
+# copy constructor of List
+l1 = [1, 2, 3]
+l2 = l1 # copy by reference
+l3 = List(l1) # copy by value (copy constructor)
+l1[0] = 4
+assert l1 == [4, 2, 3] # l1 is changed
+assert l2 == [4, 2, 3] # l2 is changed, too
+assert l3 == [1, 2, 3] # l3 is untouched
+
+# preallocated list
+list = List(3)
+assert list == [null, null, null]
+
+# List.join method
+assert "abcde".split().join() == "abcde"
+assert "abcde".split().join(",") == "a,b,c,d,e"
+assert "abcde".split().join("\0").split("\0").join() == "abcde"
+
+# List.resize method
+list = [1, 2, 3, 4, 5]
+
+list.resize(3)
+assert list == [1, 2, 3]
+
+list.resize(5)
+assert list == [1, 2, 3, null, null]
+
+# sugar for list.length-1
+# (different meaning to natural number, avoid to use, or using wisely)
+list.resize(-1)
+assert list == [1, 2, 3, null]
+
+# List.sort, List.isSorted, List.binarySearch, List.reverse methods
+# see algorithm module for detail
+
+# copy constructor of Map
+assert Map({1: 1, 2: 2, 3: 3}) == {1: 1, 2: 2, 3: 3}
+
+# Map.length, Map.keys, Map.values (the hashtable of Map is unordered)
+m = {1: 'ape', 2: 'bat', 3: 'cat', 4: 'dog'}
+assert m.length == 4
+assert m.keys.sort() == [1, 2, 3, 4]
+assert m.values.sort() == ['ape', 'bat', 'cat', 'dog']
+
+# -------------------
+# Syntax enhancements
+# -------------------
+
+# like lua: extra arguments are thrown away; extra parameters get null.
+# moreover, arguments can have default values
+def test(a, b, c) return [a, b, c] end
+assert test('a') == ['a', null, null]
+assert test('a', 'b', 'c', 'd') == ['a', 'b', 'c']
+
+def test(a = 'a', b = 'b', c = 'c') return [a, b, c] end
+assert test() == ['a', 'b', 'c']
+assert test('A', 'B') == ['A', 'B', 'c']
+
+# the same rule works for methods
+class Foo def test(a = 'a', b = 'b', c = 'c') return [a, b, c] end end
+assert Foo().test() == ['a', 'b', 'c']
+assert Foo().test('A') == ['A', 'b', 'c']
+
+# default values can be an expression
+# notable: pass null to a function will become default value
+def foo return "hello" end
+def test(a = 10, b = a * 2, c = foo())
+  return "${a} ${b} ${c}"
+end
+assert test() == "10 20 hello"
+assert test(5) == "5 10 hello"
+assert test(5, 100) == "5 100 hello"
+assert test(5, null, "hi") == "5 10 hi"
+
+# command like function call
+assert "5 10 hello" == test 5
+assert "5 100 hello" == test 5, 100
+assert "5 10 hi" == test 5, null, "hi"
+
+# space is sensitive only in few situations:
+#   a space before '[' => it's a function call with a list as argument
+#   no space before '[' => it's a subscript
+#   a space before '(' => it's a expressoin start with '('
+#   no space before '(' => it's normal function call
+
+test = fn (raw) return raw end
+assert (test [1]) == test([1])
+
+test = [1, 2, 3]
+assert test[1] == 2
+
+test = fn (list) assert list is List; return list end
+assert (test (1..5).as_list) == test((1..5).as_list)
+
+test = fn (range) assert range is Range; return range end
+assert (test(1..5).as_list) == ((test(1..5)).as_list)
+
+# conditional expression
+flag = true
+data = if flag then "TRUE" else "FALSE"
+assert data == "TRUE"
+
+flag = false
+data = if flag then "A" elif flag then "B" else "C"
+assert data == "C"
+
+# yield become true command instead of function, just like return
+# don't need to write yield() anymore
+def test(a, b)
+  yield a
+  return b
+end
+
+fb = Fiber(test)
+assert fb.run(1, 2) == 1
+assert fb.resume() == 2
+
+# ----------------------------
+# Magic methods and attributes
+# ----------------------------
+
+class Foo
+  def _call
+    return "hello, world"
+  end
+  def _getter(name)
+    return "[getter]" + self.getattr(name, true)
+  end
+  def _setter(name, value)
+    self.setattr(name, "[setter]" + value, true)
+  end
+end
+
+# _call => let instance become callable
+foo = Foo()
+assert foo() == "hello, world"
+
+# _getter, _setter => change the behavior to access the attributes of instance
+# if getter or setter is declared, all behaviors about attribute accessing are changed
+# to bypass a getter/setter, using getattr(name, true) or setattr(name, true)
+foo.a = "a"
+assert foo.a == "[getter][setter]a"
+assert foo.getattr("a", true) == "[setter]a" # skip getter
+
+foo.setattr("a", "a", true) # skip setter
+assert foo.a == "[getter]a"
+assert foo.getattr("a") == "[getter]a"
+assert foo.getattr("a", true) == "a" # skip getter
+
+# _dict => returns a map used to store an object's attributes (class or instance)
+class Foo end # discard the getter/setter
+foo = Foo()
+
+foo.a = "a"
+Foo.a = "a"
+assert foo._dict == {"a": "a"}
+assert Foo._dict == {"a": "a"}
+
+foo._dict["b"] = "b"
+Foo._dict["b"] = "b"
+assert Foo.b == "b"
+assert foo.b == "b"
+
+# -----------------
+# Iterator Protocol
+# -----------------
+
+# _next and _value are also magic methods to achieve iterator protocol
+# In the first iteration, _next get a null. Otherwise, it get the last value.
+# It should return a non-null value, and _value can use it to produce the next element.
+# If _next returns a null, the iteration stops.
+
+# a helper function to iterate an iterable object and collect all the elements
+def collect(iterable)
+  l = []
+  for i in iterable do l.append(i) end
+  return l
+end
+
+# an example for string iterator
+# (just for demo, string is already iterable in pocketlang)
+class StringIter
+  def _init(text)
+    self.text = text
+  end
+
+  def _next(index)
+    if index == null
+      return 0
+    else
+      index += 1
+      return if index >= self.text.length then null else index
+    end
+  end
+
+  def _value(index)
+    return self.text[index]
+  end
+end
+
+assert collect("hello") == ["h", "e", "l", "l", "o"]
+assert collect(StringIter("hello")) == ["h", "e", "l", "l", "o"]
+
+# an example for lua like for loop
+class Steps
+  def _init(a, b, step = 1)
+    self.a = a; self.b = b; self.step = step
+  end
+
+  def _next(iter)
+    if iter == null
+      return self.a
+    else
+      iter += self.step
+      if (self.b >= self.a and iter > self.b) or
+        (self.b < self.a and iter < self.b) then
+          iter = null
+      end
+      return iter
+    end
+  end
+
+  def _value(iter)
+    return iter
+  end
+end
+
+assert collect(Steps(1, 6)) == [1, 2, 3, 4, 5, 6]
+assert collect(Steps(1, 6, 2)) == [1, 3, 5]
+assert collect(Steps(6, 1, -1)) == [6, 5, 4, 3, 2, 1]
+assert collect(Steps(6, 1, -2)) == [6, 4, 2]
+
+# an example to run a closure as fiber and collect all the yielded value
+# use _call magic method to pass the arguments
+class FuncIter
+  def _init(func)
+    self.func = func
+    self.next = null
+    self.parameters = List(5)
+  end
+
+  def _next(iter)
+    if iter == null
+      iter = Fiber(self.func)
+      p = self.parameters
+      self.next = iter.run(p[0], p[1], p[2], p[3], p[4])
+    else
+      self.next = iter.resume()
+    end
+    if iter.is_done then return null end
+    return iter
+  end
+
+  def _value(iter)
+    return self.next
+  end
+
+  def _call(p0, p1, p2, p3, p4)
+    self.parameters = [p0, p1, p2, p3, p4]
+    return self
+  end
+end
+
+assert collect(FuncIter fn
+  yield 0
+  yield 1
+  yield 2
+end) == [0, 1, 2]
+
+assert collect(FuncIter fn
+  for i in Steps(1, 5, 2) do yield i end
+end) == [1, 3, 5]
+
+# create a findAll iterator
+findAll = FuncIter fn (text, sub)
+  start = 0
+  while true
+    result = text.find(sub, start)
+    if result == -1 then break end
+    yield result
+    start = result + 1
+  end
+end
+
+assert collect(findAll("hello, world", "o")) == [4, 8]
+assert collect(findAll("1,2,3,4,5", ",")) == [1, 3, 5, 7]
+assert collect(findAll("123123123", "123")) == [0, 3, 6]
+
+# --------------
+# Error Handling
+# --------------
+
+# Fiber.try can return the error message in error attribute of a fiber
+fb = Fiber fn
+  return "no error"
+end
+fb.try()
+assert fb.error == null
+
+fb = Fiber fn
+  ["index 1 not exists"][1]
+end
+fb.try()
+assert fb.error == "List index out of bound."
+
+# raise command can raise a custoum error, not limited in string type
+fb = Fiber fn
+  raise "an error"
+end
+fb.try()
+assert fb.error == "an error"
+
+fb = Fiber fn
+  raise ["an", "error", "as", "list"]
+end
+fb.try()
+assert fb.error == ["an", "error", "as", "list"]
+
+# let's simulate the traditional try/except/finally block
+def try(bodyFn, exceptFn, finallyFn)
+  fb = Fiber(bodyFn)
+  result = fb.try()
+  if fb.error and exceptFn is Closure
+    if exceptFn.arity == 0
+      exceptFn()
+    else
+      exceptFn(fb.error)
+    end
+  end
+  if finallyFn is Closure then finallyFn() end
+  return if not fb.error then result else null
+end
+
+e = null
+try fn
+  raise "an error"
+end, fn(err)
+  e = err
+end
+
+# make sure exceptFn is executed
+assert e == "an error"
+
+e = null
+f = null
+try fn
+  raise "an error"
+end, fn(err)
+  e = err
+end, fn
+  f = "finally"
+end
+
+# make sure exceptFn and finallyFn is executed
+assert e == "an error"
+assert f == "finally"
+
+# ---------------
+# metaprogramming
+# ---------------
+
+# eval => evaluate an expression and return the result
+assert eval("1 + 2 * 3") == 7
+
+# only global variables can be used in the expression
+hello = "hello"
+assert eval("hello + ', world'") == "hello, world"
+
+hello = fn return "hello" end
+assert eval("hello() + ', world'") == "hello, world"
+
+func = eval("fn return 'hello' end")
+assert func() + ", world" == "hello, world"
+
+# compile => compiles source code into a closure
+func = compile "
+  def test
+    return 'hello'
+  end
+  return test()
+"
+assert func is Closure
+assert func() + ", world" == "hello, world"
+
+# -------------
+# random module
+# -------------
+
+from random import seed, rand, sample, shuffle
+# random.seed(n:Number) -> Null
+# random.rand([max:Number | r:Range, isInteger=false]) -> Number
+# random.sample(list:List) -> Var
+# random.shuffle(list:List) -> List
+
+seed(0)
+i1 = rand(100, true)
+r1 = rand(100)
+l1 = (1..100).as_list
+shuffle(l1)
+s1 = sample(l1)
+
+seed(0)
+i2 = rand(100, true)
+r2 = rand(100)
+l2 = (1..100).as_list
+shuffle(l2)
+s2 = sample(l2)
+
+assert i1 == i2 and r1 == r2 and l1 == l2 and s1 == s2
+
+# ----------------
+# algorithm module
+# ----------------
+
+# this module provides sort (timsort), isSorted, binarySearch, and reverse functions.
+# because all the functions use List as first parameter,
+# so this module also inject these functions as builtin methods to List.
+# no import is needed to use these methods.
+
+# List.sort([cmp:Closure, reverse=false]) -> List
+# List.isSorted([cmp:Closure, reverse=false]) -> Bool
+# List.binarySearch(key:Var[, cmp:Closure]) -> Number
+# List.reverse([range:Range]) -> List
+
+assert shuffle((1..100).as_list).sort() == (1..100).as_list
+assert shuffle((1..100).as_list).sort().isSorted() == true
+assert shuffle((1..100).as_list).sort(true).isSorted(true) == true # reverse=true
+for i in 1..100
+  l = (1..100).as_list
+  s = sample(l)
+  assert l.binarySearch(s) == s - 1
+end
+assert shuffle((1..100).as_list).sort(true) == (1..100).as_list.reverse()
+
+animals = ["ape", "bat", "cat", "dog"]
+
+# use List(animals) to ensure that animals is untouched
+assert shuffle(List(animals)).sort() == animals
+assert shuffle(List(animals)).sort(true) == List(animals).reverse()
+
+class Person
+  def _init(name, age)
+    self.name = name
+    self.age = age
+  end
+
+  def _str
+    return "${self.name}(${self.age})"
+  end
+end
+
+def stringify(members)
+  ret = "["
+  first = true
+  for person in members
+    if not first then ret += ", " end
+    ret += str(person)
+    first = false
+  end
+  ret += "]"
+  return ret
+end
+
+members = [Person("John", 48), Person("Joe", 31), Person("Mary", 24),
+  Person("Bob", 38), Person("David", 60)]
+
+assert stringify(members) == "[John(48), Joe(31), Mary(24), Bob(38), David(60)]"
+
+# sort by age
+members.sort fn(a, b) return a.age - b.age end
+assert stringify(members) == "[Mary(24), Joe(31), Bob(38), John(48), David(60)]"
+
+# sort by age, reversed
+members.sort fn(a, b) return a.age - b.age end, true
+assert stringify(members) == "[David(60), John(48), Bob(38), Joe(31), Mary(24)]"
+
+# sort by name
+members.sort fn(a, b) return Number(a.name > b.name) - Number(a.name < b.name) end
+assert stringify(members) == "[Bob(38), David(60), Joe(31), John(48), Mary(24)]"
+
+# sort by name, reversed
+members.sort fn(a, b) return Number(a.name > b.name) - Number(a.name < b.name) end, true
+assert stringify(members) == "[Mary(24), John(48), Joe(31), David(60), Bob(38)]"
+
+# --------------------------------
+# monotime function in time module
+# --------------------------------
+from time import monotime, sleep
+
+assert(monotime() != monotime())
+start = monotime()
+sleep(100)
+assert (monotime() - start) / 1000000 in 70..130
+
+# ---------
+# re module
+# ---------
+
+import re
+# re.match(pattern:String, input:String[, flag:Number]) -> List
+# re.range(pattern:String, input:String[, flag: Number]) -> List
+# re.test(pattern:String, input:String[, flag: Number]) -> Bool
+# re.replace(pattern:String, input:String, [by:String|Closure, count:Number, flag:Number]) -> String
+# re.split(pattern:String, input:String[, count:Number, flag:Number]) -> List
+
+assert re.match(r"\d+", "123 456 789") == ["123"]
+assert re.match(r"\d+", "123 456 789", re.G) == ["123", "456", "789"]
+assert re.match(r"[A-Z]+", "Ape Bat Cat Dog", re.G) == ["A", "B", "C", "D"]
+assert re.match(r"[A-Z]+", "Ape Bat Cat Dog", re.G | re.I) == ["Ape", "Bat", "Cat", "Dog"]
+
+assert re.range(r"\d+", "123 456 789") == [0..3]
+assert re.range(r"\d+", "123 456 789", re.G) == [0..3, 4..7, 8..11]
+
+assert re.test(r"^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$", "test@gmail.com") == true
+assert re.test(r"^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$", " test@gmail.com") == false
+assert re.test(r"^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$", "test@gmail.c") == false
+
+html = "<b>Hello, <i>world</i></b>"
+toUpper = fn (s) return s.upper() end
+assert re.replace(r"<[^>]+>", html) == "Hello, world"
+assert re.replace(r"<[^>]+>", html, "", 1) == "Hello, <i>world</i></b>"
+assert re.replace(r"<[^>]+>", html, toUpper) == "<B>Hello, <I>world</I></B>"
+assert re.replace(r"<[^>]+>", html, toUpper, 1) == "<B>Hello, <i>world</i></b>"
+
+assert re.split(r"[, ]+", "Ape,Bat , Cat,  Dog") == ["Ape", "Bat", "Cat", "Dog"]
+
+# -------
+# Bug fix
+# -------
+
+# a MethodBind can bind any instance that has the same method
+# here is an example of duck typing
+
+class Animal
+  def swim()
+    return "I am a ${self._class.name}, Can I swim?"
+  end
+end
+
+class Duck
+  def swim()
+    return "I am a ${self._class.name}, I am swimming."
+  end
+end
+
+class Whale
+  def swim()
+    return "I am a ${self._class.name}, I am swimming."
+  end
+end
+
+assert Animal.swim.bind(Duck())() == "I am a Duck, Can I swim?" # didn't work previously
+assert Animal.swim.bind(Whale())() == "I am a Whale, Can I swim?" # didn't work previously
+assert Duck().swim() == "I am a Duck, I am swimming."
+assert Whale().swim() == "I am a Whale, I am swimming."
+
+# mehtod should have an arity attribute like a closure
+def test(a, b, c) end
+class Foo
+  def test(a, b, c) end
+end
+assert test.arity == 3
+assert Foo.test.arity == 3 # didn't work previously
+
+# in operator can be used in range object
+assert 3 in 1..5 # didn't work previously
+
+print('All TESTS PASSED')

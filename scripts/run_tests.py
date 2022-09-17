@@ -32,7 +32,6 @@ TEST_SUITE = {
   ),
 
   "Modules Test" : (
-    "modules/dummy.pk",
     "modules/math.pk",
     "modules/io.pk",
     "modules/json.pk",
@@ -43,6 +42,11 @@ TEST_SUITE = {
     "random/linked_list.pk",
     "random/lisp_eval.pk",
     "random/string_algo.pk",
+  ),
+
+  "Devel Scripts" : (
+    "devel/tests.pk",
+    "devel/demo.pk",
   ),
 
   "Examples": (

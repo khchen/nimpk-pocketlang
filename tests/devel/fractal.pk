@@ -1,0 +1,27 @@
+# source in lua
+# https://rosettacode.org/w/index.php?title=Mandelbrot_set&action=edit&section=119
+
+import io
+
+def step(a, b, i)
+  result = []
+  while a <= b
+    result.append a
+    a += i
+  end
+  return result
+end
+
+for y in step(-1.3, 1.3, 0.1)
+  for x in step(-2.1, 1.1, 0.04)
+    zi = 0; zr = 0; i = 0
+    while i < 100
+      if zi * zi + zr * zr >= 4 then break end
+      zr2 = zr*zr - zi*zi + x; zi2 = 2*zr*zi + y
+      zr = zr2; zi = zi2
+      i += 1
+    end
+    io.write(io.stdout, " .:-=+*#%@"[i % 10])
+  end
+  print()
+end

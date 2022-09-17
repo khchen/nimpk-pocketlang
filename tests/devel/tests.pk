@@ -1,0 +1,377 @@
+import math, re
+from random import rand, shuffle, sample
+from time import monotime
+
+class Foo
+  def _init(first, last, step)
+    self.first = first
+    self.last = last
+    self.step = step
+  end
+
+  def _next(iter)
+    if iter == null then return self.first end
+    iter += self.step
+    if iter > self.last then iter = null end
+    return iter
+  end
+
+  def _value(iter)
+    return iter
+  end
+
+  def _getter(name)
+    value = self.getattr(name, true)
+    if value is String
+      value = "getter:" + value
+    end
+    return value
+  end
+
+  def _setter(name, value)
+    if value is String
+      value = "setter:" + value
+    end
+    self.setattr(name, value, true)
+  end
+
+  def _call(a = 1, b = a * 2)
+    return a + b
+  end
+
+  def _str
+    return "FOOFOOFOO"
+  end
+end
+
+def test_magic_methods
+  # _init/_next/_value
+  l = []
+  for i in Foo(0, 10, 2)
+    l.append(i)
+  end
+  assert(l == [0, 2, 4, 6, 8, 10])
+
+  # _getter/_setter
+  f = Foo()
+  f.text = "abc"
+  assert(f.text == "getter:setter:abc")
+
+  # _call and parameters with default value
+  assert(f() == 3)
+  assert(f(2) == 6)
+  assert(f(2, 2) == 4)
+
+  # _str
+  assert(str(f) == "FOOFOOFOO")
+
+  # methoid_arity
+  assert(Foo._init.arity == 3)
+end
+
+def test_string
+  # raw_string
+  assert("${1+1}" == "2")
+  assert(r"${1+1}" == "\${1+1}")
+
+  # strformat
+  assert("%d" % 123 == "123")
+  assert("%d %d %d" % ['1', 2, 3] == "1 2 3")
+  assert("%s %s %s" % ['1', 2, 3] == "1 2 3")
+  assert("%.2f %.2f %.2f" % ['1', 2, 3] == "1.00 2.00 3.00")
+  assert("%c %c %c" % [0x41, 0x61, 0x4141] == "A a 䅁")
+
+  # stringsplit
+  assert([1, 2, 3].join().split() == ["1", "2", "3"])
+  assert([1, 2, 3].join(',').split(',') == ["1", "2", "3"])
+  assert([1, 2, 3].join('\x00').split('\x00') == ["1", "2", "3"])
+  assert("\x00\x00\x00\x00\x00".split('\x00\x00') == ["", "", "\x00"])
+end
+
+def test_list_map
+  # list_join
+  assert([1, 2, 3].join() == "123")
+  assert([1, 2, 3].join(',') == "1,2,3")
+  assert([1, 2, 3].join('\x00') == '1\x002\x003')
+
+  # list_map_ctor
+  l = List(5)
+  assert(l == [null, null, null, null, null])
+
+  l1 = [1, 2, 3]; l2 = l1; l1[0] = 0
+  assert(l2 == [0, 2, 3])
+
+  l1 = [1, 2, 3]; l2 = List(l1); l1[0] = 0
+  assert(l2 == [1, 2, 3])
+
+  m1 = {1: '1', 2: '2', 3: '3'}; m2 = m1; m1[1] = ''
+  assert(m2 == {1:'', 2:'2', 3:'3'})
+
+  m1 = {1: '1', 2: '2', 3: '3'}; m2 = Map(m1); m1[1] = ''
+  assert(m2 == {1:'1', 2:'2', 3:'3'})
+
+  l = List()
+  assert(l == [])
+
+  m = Map()
+  assert(m == {})
+
+  # list_resize
+  l = (1..10).as_list
+  l.resize(5)
+  assert(l == [1, 2, 3, 4, 5])
+  l.resize(7)
+  assert(l == [1, 2, 3, 4, 5, null, null])
+  l.resize(-4)
+  assert(l == [1, 2, 3])
+  l.resize(-3)
+  assert(l == [])
+
+  # map_attrib
+  m = {1: '1', 2: '2', 3: '3'}
+  assert(m.length == 3)
+  assert(m.keys.sort() == [1, 2, 3])
+  assert(m.values.sort() == ['1', '2', '3'])
+  assert({}.length == 0)
+  assert({}.keys == [])
+  assert({}.values == [])
+end
+
+def test_try
+  try = fn (func)
+    fb = Fiber(func)
+    fb.try()
+    return fb.error
+  end
+
+  err = try fn
+    fn
+      fn
+        fn
+          raise "an error"
+        end ()
+      end ()
+    end ()
+  end
+  assert(err == "an error")
+
+  err = try fn
+    1.times fn(i)
+      1.times fn(i)
+        1.times fn(i)
+          raise "an error"
+        end
+      end
+    end
+  end
+  assert(err == "an error")
+
+  err = try fn
+    raise Foo(0, 10, 2)
+  end
+  assert(err is Foo)
+end
+
+def test_random
+  for i in 1..1000 do
+    assert(rand(5) < 5)
+  end
+  for i in 1..1000 do
+    r = rand(10..20, true)
+    assert(r == math.floor(r)) # is integer
+    assert(r >= 10 and r < 20)
+  end
+  l = (0..10).as_list
+  assert(shuffle(List(l)) != l)
+  assert(sample(l) in l)
+end
+
+def test_re
+  assert(re.match(r'^[\d][\w][\D][\W][\s][\S][\x41]$', '1ab. .A'))
+  assert(re.match(r'.', '中文測試', re.G) == ['中', '文', '測', '試'])
+  assert(re.match(r'abc', 'ABC', re.I))
+end
+
+def test_algorithm
+  l = shuffle((1..20).as_list)
+  assert(l.sort() == (1..20).as_list)
+  assert((1..20).as_list.isSorted())
+  assert((20..1).as_list.isSorted())
+  assert((1..20).as_list.reverse().isSorted(true))
+end
+
+def test_monotime
+  assert(monotime() != monotime())
+end
+
+class Iterator
+  def _init(func)
+    self.func = func
+    self.next = null
+    self.arguments = []
+  end
+
+  def _next(iter)
+    if iter == null
+      iter = Fiber(self.func)
+      p = self.arguments
+      self.next = iter.run(p[0], p[1], p[2], p[3], p[4], p[5],
+        p[6], p[7], p[8], p[9])
+    else
+      self.next = iter.resume()
+    end
+    if iter.is_done then return null end
+    return iter
+  end
+
+  def _value(iter)
+    return self.next
+  end
+
+  def _call(p0, p1, p2, p3, p4, p5, p6, p7, p8, p9)
+    self.arguments = [p0, p1, p2, p3, p4, p5, p6, p7, p8, p9]
+    return self
+  end
+end
+
+def collect(iterator)
+  l = []
+  for i in iterator
+    l.append(i)
+  end
+  return l
+end
+
+def test_iterator
+  test = Iterator fn
+    yield 1
+    yield 3
+    yield 5
+  end
+
+  assert(collect(test()) == [1, 3, 5])
+  assert [1, 3, 5] == collect test()
+
+  test = Iterator fn(a = 1, b = 1, c = 1)
+    yield a
+    yield b
+    yield c
+    yield a * b * c
+  end
+
+  assert(collect(test(1, 2, 3)) == [1, 2, 3, 6])
+  assert [1, 2, 3, 6] == collect test 1, 2, 3
+
+  countup = Iterator fn(first = 0, last = 0, step = 1)
+    i = first
+    while i < last
+      yield i
+      i += step
+    end
+  end
+
+  assert(collect(countup(1, 10, 2)) == [1, 3, 5, 7, 9])
+  assert [1, 3, 5, 7, 9] == collect countup 1, 10, 2
+end
+
+def test_command
+  check = fn (x) return x end
+
+  value = [['test']]
+  assert 1 == check 1
+  assert 12.34 == check 12.34
+  assert value == check value
+  assert 'test' == check 'test'
+  assert '$value' == check '$value'
+  assert '${value}' == check '${value}'
+  assert [1] == check [1]
+  assert [1, 2, 3] == check [1, 2, 3]
+  assert {1:'a', 2:'b'} == check {1:'a', 2:'b'}
+  assert check == check check check check
+
+  # name [0] is call, name[0] is subscript
+  # non-identifier [0] and non-identifier[0] are both subscript
+  assert 'test' == check ['test'] [0]
+  assert 'test' == value[0][0]
+  assert 'test' == value[0] [0]
+
+  sum = fn (a, b, c) return a + b + c end
+  assert 6 == sum 1, 2, 3
+  assert 6 == sum 1,
+                  2,
+                  3
+end
+
+def test_yield
+  fb = Fiber fn
+    assert 456 == yield 123
+    yield 789
+  end
+  assert fb.run() == 123
+  assert fb.resume(456) == 789
+end
+
+def test_meta
+  message = "Metaprogramming"
+  value = 12345
+
+  code = "
+    def test
+      return $value
+    end
+    return '$message' .. test()
+  "
+  func = compile(code)
+  assert func() == "Metaprogramming12345"
+
+  Foo.message = eval("'Meta' + 'programming'")
+  Foo.value = eval("123450 / 10")
+  Foo.func = eval("
+    fn
+      return Foo.message .. eval('Foo.value')
+    end
+  ")
+  eval('assert')(eval('Foo.func()') == "Metaprogramming12345")
+end
+
+def test_inrange
+  assert 3 in 1..5
+  assert 10.10 in 10..11
+  assert not (5 in 1..5)
+  assert 1 in 1..5
+end
+
+def test_exprif
+  assert if true true else false
+  assert if true
+    true
+  else
+    false
+
+  a = null
+  a = if a then a else "default"
+  assert a == "default"
+
+  a = "message"
+  a = if a then a else "default"
+  assert a == "message"
+
+  assert "message" == (if Bool(a) "message" else "default")
+end
+
+test_magic_methods()
+test_string()
+test_list_map()
+test_try()
+test_random()
+test_re()
+test_algorithm()
+test_monotime()
+test_iterator()
+test_command()
+test_yield()
+test_meta()
+test_inrange()
+test_exprif()
+
+print('All TESTS PASSED')
