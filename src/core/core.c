@@ -821,19 +821,21 @@ DEF(coreEval,
   String* code = stringFormat(vm, "return (@)", expr);
   vmPushTempRef(vm, &code->_super); // code.
   {
-    CallFrame* frame = &vm->fiber->frames[vm->fiber->frame_count - 1];
-    Module* current_module = frame->closure->fn->owner;
-
     Module* new_module = newModule(vm);
     vmPushTempRef(vm, &new_module->_super); // new_module.
     {
       // let global variables become available
-      pkVarBufferConcat(&new_module->constants, vm,
-        &current_module->constants);
-      pkVarBufferConcat(&new_module->globals, vm,
-        &current_module->globals);
-      pkUintBufferConcat(&new_module->global_names, vm,
-        &current_module->global_names);
+      if (vm->fiber->frame_count != 0) {
+        CallFrame* frame = &vm->fiber->frames[vm->fiber->frame_count - 1];
+        Module* current_module = frame->closure->fn->owner;
+
+        pkVarBufferConcat(&new_module->constants, vm,
+          &current_module->constants);
+        pkVarBufferConcat(&new_module->globals, vm,
+          &current_module->globals);
+        pkUintBufferConcat(&new_module->global_names, vm,
+          &current_module->global_names);
+      }
 
       CompileOptions options = newCompilerOptions();
       options.runtime = true;
@@ -2333,12 +2335,12 @@ bool varContains(PKVM* vm, Var elem, Var container) {
     default: break;
   }
 
-#define v1 container
-#define v2 elem
-  const bool inplace = false;
-  CHECK_INST_BINARY_OP("in");
-#undef v1
-#undef v2
+  // Cannot not use CHECK_INST_BINARY_OP("in")
+  // it returns VAR_FASLE instead of bool false
+  Var result;
+  if (_callBinaryOpMethod(vm, container, elem, "in", &result)) {
+    return toBool(result);
+  }
 
   VM_SET_ERROR(vm, stringFormat(vm, "Argument of type $ is not iterable.",
                varTypeName(container)));

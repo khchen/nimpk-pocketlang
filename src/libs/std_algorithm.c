@@ -278,7 +278,7 @@ DEF(algorithmReverse,
 
 static void _callfn(PKVM* vm, pkNativeFn fn) {
   int argc = pkGetArgc(vm);
-  pkReserveSlots(vm, argc + 1);
+  pkReserveSlots(vm, argc + 2); // at least 2 to place self
   for (int i = argc; i > 0; i--) {
     ARG(i + 1) = ARG(i);
   }
