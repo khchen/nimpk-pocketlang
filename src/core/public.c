@@ -863,7 +863,10 @@ void* pkGetSlotNativeInstance(PKVM* vm, int index) {
   // TODO: If the native initializer (pkNewInstanceFn()) returned NULL,
   // [inst->native] will be null - handle.
   Instance* inst = (Instance*) AS_OBJ(value);
-  ASSERT(inst->native != NULL, "Slot value wasn't a Native Instance");
+  // DO NOT ASSERT HERE !
+  // For now there is no way to check is it a native instance.
+  // TODO: add pkIsNativeInstance()...
+  // ASSERT(inst->native != NULL, "Slot value wasn't a Native Instance");
 
   return inst->native;
 }

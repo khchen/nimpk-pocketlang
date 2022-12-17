@@ -188,7 +188,7 @@ end
 
 def test_re
   assert(re.match(r'^[\d][\w][\D][\W][\s][\S][\x41]$', '1ab. .A'))
-  assert(re.match(r'.', '中文測試', re.G) == ['中', '文', '測', '試'])
+  assert(re.match(r'.', '中文測試', re.G|re.U) == ['中', '文', '測', '試'])
   assert(re.match(r'abc', 'ABC', re.I))
 end
 

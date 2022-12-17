@@ -4,7 +4,9 @@
 </p>
 
 ------------
-This fork contains the enhanced version of pocketlang.
+This fork contains the enhanced version of pocketlang. The main goal of this
+fork is to achieve a script that can integrate deeply into
+[nim language](https://github.com/khchen/nimpk).
 
 Enhancements compare to original version:
  * String format via modulo operator.

@@ -14,8 +14,9 @@
 
 #define RE_IGNORECASE 1
 #define RE_GLOBAL 2
+#define RE_UTF8 4
 
-static RE* _re_init(PKVM* vm, const char** input, uint32_t* len, 
+static RE* _re_init(PKVM* vm, const char** input, uint32_t* len,
     int flag_argc, int* global) {
 
   const char *pattern; uint32_t pattern_len;
@@ -29,8 +30,9 @@ static RE* _re_init(PKVM* vm, const char** input, uint32_t* len,
 
   if (global) *global = (flags & RE_GLOBAL) == RE_GLOBAL;
   int insensitive = (flags & RE_IGNORECASE) == RE_IGNORECASE;
+  int utf8 = (flags & RE_UTF8) == RE_UTF8;
 
-  RE* re = re_compile(pattern, insensitive);
+  RE* re = re_compile(pattern, insensitive, utf8);
   if (!re) {
     pkSetRuntimeError(vm, "Cannot compile the regex pattern.");
     return NULL;
@@ -39,70 +41,75 @@ static RE* _re_init(PKVM* vm, const char** input, uint32_t* len,
   return re;
 }
 
-static void _re_match(PKVM* vm, RE* re, const char *input, uint32_t len, 
-    bool global, bool range) {
+static void _re_match(PKVM* vm, RE* re, const char *input, uint32_t len,
+    bool global, bool range, bool includeSub) {
 
   pkNewList(vm, 0);
   const char *ptr = input;
+  uint32_t len0 = len;
   do {
-    const char** matches = re_match(re, ptr);
+    const char** matches = re_match(re, ptr, len);
     if (!matches) break;
 
     for (int i = 0; i < re_max_matches(re); i += 2) {
       if (matches[i] && matches[i + 1]) {
         if (range) pkNewRange(vm, 1, matches[i] - input, matches[i + 1] - input);
-        else  pkSetSlotStringLength(vm, 1, matches[i], matches[i + 1] - matches[i]);
+        else pkSetSlotStringLength(vm, 1, matches[i], matches[i + 1] - matches[i]);
         pkListInsert(vm, 0, -1, 1);
       } else {
         if (range) pkSetSlotNull(vm, 1);
         else pkSetSlotStringLength(vm, 1, ptr, 0);
         pkListInsert(vm, 0, -1, 1);
       }
+      if (!includeSub) break;
     }
     if (ptr == matches[1]) break; // cannot advance
-
+    len -= matches[1] - ptr;
     ptr = matches[1]; // point to last matched char
-  } while (global && ptr < input + len);  
+  } while (global && ptr < input + len0);
 }
 
 DEF(_reMatch,
   "re.match(pattern:String, input:String[, flag:Number]) -> List",
   "Perform a regular expression match and return a list of matches.\n\n"
   "Supported patterns:\n"
-  "  ^        Match beginning of a buffer\n"
-  "  $        Match end of a buffer\n"
-  "  (...)    Grouping and substring capturing\n"
-  "  (?:...)  Non-capture grouping\n"
-  "  \\s       Match whitespace [ \\t\\n\\r\\f\\v]\n"
-  "  \\S       Match non-whitespace [^ \\t\\n\\r\\f\\v]\n"
-  "  \\w       Match alphanumeric [a-zA-Z0-9_]\n"
-  "  \\W       Match non-alphanumeric [^a-zA-Z0-9_]\n"
-  "  \\d       Match decimal digit [0-9]\n"
-  "  \\D       Match non-decimal digit [^0-9]\n"
-  "  \\n       Match new line character\n"
-  "  \\r       Match line feed character\n"
-  "  \\f       Match form feed character\n"
-  "  \\v       Match vertical tab character\n"
-  "  \\t       Match horizontal tab character\n"
-  "  \\b       Match backspace character\n"
-  "  +        Match one or more times (greedy)\n"
-  "  +?       Match one or more times (non-greedy)\n"
-  "  *        Match zero or more times (greedy)\n"
-  "  *?       Match zero or more times (non-greedy)\n"
-  "  ?        Match zero or once (greedy)\n"
-  "  ??       Match zero or once (non-greedy)\n"
-  "  x|y      Match x or y (alternation operator)\n"
-  "  \\meta    Match one of the meta character: ^$().[]*+?|\\\n"
-  "  \\xHH     Match byte with hex value 0xHH, e.g. \\x4a\n"
-  "  \\<, \\>   Match start-of-word and end-of-word.\n"
-  "  [...]    Match any character from set. Ranges like [a-z] are supported\n"
-  "  [^...]   Match any character but ones from set\n"
-  "  {n}      Matches exactly n times.\n"
-  "  {n,}     Matches the preceding character at least n times.\n"
-  "  {n,m}    Matches the preceding character at least n and at most m times.\n\n"
+  "  ^          Match beginning of a buffer\n"
+  "  $          Match end of a buffer\n"
+  "  (...)      Grouping and substring capturing\n"
+  "  (?:...)    Non-capture grouping\n"
+  "  \\s         Match whitespace [ \\t\\n\\r\\f\\v]\n"
+  "  \\S         Match non-whitespace [^ \\t\\n\\r\\f\\v]\n"
+  "  \\w         Match alphanumeric [a-zA-Z0-9_]\n"
+  "  \\W         Match non-alphanumeric [^a-zA-Z0-9_]\n"
+  "  \\d         Match decimal digit [0-9]\n"
+  "  \\D         Match non-decimal digit [^0-9]\n"
+  "  \\n         Match new line character\n"
+  "  \\r         Match line feed character\n"
+  "  \\f         Match form feed character\n"
+  "  \\v         Match vertical tab character\n"
+  "  \\t         Match horizontal tab character\n"
+  "  \\b         Match backspace character\n"
+  "  +          Match one or more times (greedy)\n"
+  "  +?         Match one or more times (non-greedy)\n"
+  "  *          Match zero or more times (greedy)\n"
+  "  *?         Match zero or more times (non-greedy)\n"
+  "  ?          Match zero or once (greedy)\n"
+  "  ??         Match zero or once (non-greedy)\n"
+  "  x|y        Match x or y (alternation operator)\n"
+  "  \\meta      Match one of the meta character: ^$().[]{}*+?|\\\n"
+  "  \\x00       Match hex character code (exactly 2 digits)\n"
+  "  \\u0000     Match hex character code (exactly 4 digits)\n"
+  "  \\U00000000 Match hex character code (exactly 8 digits)\n"
+  "  \\<, \\>     Match start-of-word and end-of-word.\n"
+  "  [...]      Match any character from set. Ranges like [a-z] are supported\n"
+  "  [^...]     Match any character but ones from set\n"
+  "  {n}        Matches exactly n times.\n"
+  "  {n,}       Matches the preceding character at least n times.\n"
+  "  {n,m}      Matches the preceding character at least n and at most m times.\n\n"
   "Flags:\n"
   "  re.I, re.IGNORECASE    Perform case-insensitive matching\n"
-  "  re.G, re.GLOBAL        Perform global matching"  
+  "  re.G, re.GLOBAL        Perform global matching\n"
+  "  re.U, re.UTF8          Perform utf8 matching"
   ) {
 
   int argc = pkGetArgc(vm);
@@ -112,7 +119,7 @@ DEF(_reMatch,
   RE* re = _re_init(vm, &input, &len, 3, &global);
   if (!re) return;
 
-  _re_match(vm, re, input, len, global, false);
+  _re_match(vm, re, input, len, global, false, true);
   re_free(re);
 }
 
@@ -129,7 +136,7 @@ DEF(_reRange,
   RE* re = _re_init(vm, &input, &len, 3, &global);
   if (!re) return;
 
-  _re_match(vm, re, input, len, global, true);
+  _re_match(vm, re, input, len, global, true, true);
   re_free(re);
 }
 
@@ -146,19 +153,16 @@ DEF(_reTest,
   RE* re = _re_init(vm, &input, &len, 3, NULL);
   if (!re) return;
 
-  const char** matches = re_match(re, input);
-
-  pkSetSlotBool(vm, 0, matches != NULL);
-
+  _re_match(vm, re, input, len, false, true, false);
+  pkSetSlotBool(vm, 0, pkListLength(vm, 0) != 0);
   re_free(re);
 }
 
 DEF(_reReplace,
-  "re.replace(pattern:String, input:String, [by:String|Closure, count:Number, flag:Number]) -> String",
-  "Replaces [pattern] in [input] by the string [by].\n"
+  "re.replace(pattern:String, input:String, [by:String|Closure, flag:Number, limit:Number]) -> String",
+  "Replaces [pattern] in [input] by the string [by] or the result of the [by()].\n"
   "Run help(re.match) to show supported regex patterns."
   ) {
-    
 
   int argc = pkGetArgc(vm);
   if (!pkCheckArgcRange(vm, argc, 2, 5)) return;
@@ -168,13 +172,6 @@ DEF(_reReplace,
     PkVarType type = pkGetSlotType(vm, 3);
     if (type == PK_CLOSURE) {
       callback = 3;
-      int arity;
-      if (!pkGetAttribute(vm, 3, "arity", 0) ||
-        pkGetSlotType(vm, 0) != PK_NUMBER ||
-        pkGetSlotNumber(vm, 0) != 1) {
-          pkSetRuntimeError(vm, "Expected exactly 1 argument for callback function.");
-          return;
-      }
 
     } else if (type == PK_STRING) {
       by = pkGetSlotString(vm, 3, &by_len);
@@ -185,29 +182,38 @@ DEF(_reReplace,
     }
   }
 
-  int32_t count = -1;
-  if (argc >= 4) {
-    if (!pkValidateSlotInteger(vm, 4, &count)) return;
+  int32_t limit = -1;
+  if (argc >= 5) {
+    if (!pkValidateSlotInteger(vm, 5, &limit)) return;
   }
 
   const char *input; uint32_t len;
-  RE* re = _re_init(vm, &input, &len, 5, NULL);
+  RE* re = _re_init(vm, &input, &len, 4, NULL);
   if (!re) return;
+
+  int groups = re_max_matches(re) / 2;
+  pkReserveSlots(vm, groups + argc + 2);
 
   pkByteBuffer buff;
   pkByteBufferInit(&buff);
 
+  uint32_t len0 = len;
   const char *ptr = input;
-  while (ptr < input + len && count != 0) {
-    const char** matches = re_match(re, ptr);
+  while (ptr < input + len0 && limit != 0) {
+    const char** matches = re_match(re, ptr, len);
     if (!matches || !matches[0] || !matches[1] || matches[0] == matches[1]) break;
 
     if (matches[0] - ptr != 0) {
       pkByteBufferAddString(&buff, vm, ptr, matches[0] - ptr);
     }
     if (callback) {
-      pkSetSlotStringLength(vm, 0, matches[0], matches[1] - matches[0]);
-      pkCallFunction(vm, callback, 1, 0, 0);
+      for (int i = 0; i < re_max_matches(re); i += 2) {
+        if (matches[i] && matches[i + 1]) {
+          pkSetSlotStringLength(vm, argc + (i / 2) + 1,
+            matches[i], matches[i + 1] - matches[i]);
+        }
+      }
+      pkCallFunction(vm, callback, groups, argc + 1, 0);
       if (pkGetSlotType(vm, 0) == PK_STRING) {
         by = pkGetSlotString(vm, 0, &by_len);
         pkByteBufferAddString(&buff, vm, by, by_len);
@@ -216,11 +222,12 @@ DEF(_reReplace,
       pkByteBufferAddString(&buff, vm, by, by_len);
     }
 
+    len -= matches[1] - ptr;
     ptr = matches[1]; // point to last matched char
-    if (count > 0) count--;
+    if (limit > 0) limit--;
   }
-  if (ptr < input + len) {
-    pkByteBufferAddString(&buff, vm, ptr, input + len - ptr);
+  if (ptr < input + len0) {
+    pkByteBufferAddString(&buff, vm, ptr, input + len0 - ptr);
   }
 
   String* str = newStringLength(vm, (const char*)buff.data, buff.count);
@@ -231,7 +238,7 @@ DEF(_reReplace,
 }
 
 DEF(_reSplit,
-  "re.split(pattern:String, input:String[, count:Number, flag:Number]) -> List",
+  "re.split(pattern:String, input:String[, flag:Number, limit:Number]) -> List",
   "Split string by a regular expression.\n"
   "Run help(re.match) to show supported regex patterns."
   ) {
@@ -239,31 +246,51 @@ DEF(_reSplit,
   int argc = pkGetArgc(vm);
   if (!pkCheckArgcRange(vm, argc, 2, 4)) return;
 
-  int32_t count = -1;
-  if (argc >= 3) {
-    if (!pkValidateSlotInteger(vm, 3, &count)) return;
+  int32_t limit = -1;
+  if (argc >= 4) {
+    if (!pkValidateSlotInteger(vm, 4, &limit)) return;
   }
 
   const char *input; uint32_t len;
-  RE* re = _re_init(vm, &input, &len, 4, NULL);
+  RE* re = _re_init(vm, &input, &len, 3, NULL);
   if (!re) return;
 
   pkNewList(vm, 0);
 
+  int splitCharMode = false;
+  uint32_t len0 = len;
   const char *ptr = input;
-  while (ptr < input + len && count != 0) {
-    const char** matches = re_match(re, ptr);
-    if (!matches || !matches[0] || !matches[1] || matches[0] == matches[1]) break;
+  while (ptr < input + len0 && limit != 0) {
+    const char** matches = re_match(re, ptr, len);
+    if (!matches) break;
 
-    pkSetSlotStringLength(vm, 1, ptr, matches[0] - ptr);
+    if ((splitCharMode == false) &&
+        (!matches[0] || !matches[1] || matches[0] == matches[1])) {
+      // split into chars
+      int insensitive, utf8;
+      re_flags(re, &insensitive, &utf8);
+      re_free(re);
+
+      re = re_compile(".", insensitive, utf8);
+      splitCharMode = true;
+      continue;
+    }
+
+    if (!splitCharMode) {
+      pkSetSlotStringLength(vm, 1, ptr, matches[0] - ptr);
+    } else {
+      pkSetSlotStringLength(vm, 1, matches[0], matches[1] - matches[0]);
+    }
     pkListInsert(vm, 0, -1, 1);
 
+    len -= matches[1] - ptr;
     ptr = matches[1]; // point to last matched char
-    if (count > 0) count--;
+    if (limit > 0) limit--;
   }
-  pkSetSlotStringLength(vm, 1, ptr, input + len - ptr);
-  pkListInsert(vm, 0, -1, 1);
-
+  if (!splitCharMode || ptr < input + len0) {
+    pkSetSlotStringLength(vm, 1, ptr, input + len0 - ptr);
+    pkListInsert(vm, 0, -1, 1);
+  }
   re_free(re);
 }
 
@@ -282,6 +309,9 @@ void registerModuleRe(PKVM* vm) {
   pkSetSlotNumber(vm, 1, RE_GLOBAL);
   pkSetAttribute(vm, 0, "G", 1);
   pkSetAttribute(vm, 0, "GLOBAL", 1);
+  pkSetSlotNumber(vm, 1, RE_UTF8);
+  pkSetAttribute(vm, 0, "U", 1);
+  pkSetAttribute(vm, 0, "UTF8", 1);
 
   REGISTER_FN(re, "match", _reMatch, -1);
   REGISTER_FN(re, "range", _reRange, -1);

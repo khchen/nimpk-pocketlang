@@ -543,9 +543,9 @@ assert re.test(r"^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$", "test@gmail.c") == false
 html = "<b>Hello, <i>world</i></b>"
 toUpper = fn (s) return s.upper() end
 assert re.replace(r"<[^>]+>", html) == "Hello, world"
-assert re.replace(r"<[^>]+>", html, "", 1) == "Hello, <i>world</i></b>"
+assert re.replace(r"<[^>]+>", html, "", re.U, 1) == "Hello, <i>world</i></b>"
 assert re.replace(r"<[^>]+>", html, toUpper) == "<B>Hello, <I>world</I></B>"
-assert re.replace(r"<[^>]+>", html, toUpper, 1) == "<B>Hello, <i>world</i></b>"
+assert re.replace(r"<[^>]+>", html, toUpper, re.U, 1) == "<B>Hello, <i>world</i></b>"
 
 assert re.split(r"[, ]+", "Ape,Bat , Cat,  Dog") == ["Ape", "Bat", "Cat", "Dog"]
 
