@@ -47,11 +47,18 @@ static void _re_match(PKVM* vm, RE* re, const char *input, uint32_t len,
   pkNewList(vm, 0);
   const char *ptr = input;
   uint32_t len0 = len;
+  const char *lastMatch1 = NULL;
+
   do {
     const char** matches = re_match(re, ptr, len);
     if (!matches) break;
 
     for (int i = 0; i < re_max_matches(re); i += 2) {
+      if (i == 0 && lastMatch1 == matches[1] && ptr == lastMatch1) {
+        // match same anchor again, avoid to yield the same slice twice.
+        continue;
+      }
+
       if (matches[i] && matches[i + 1]) {
         if (range) pkNewRange(vm, 1, matches[i] - input, matches[i + 1] - input);
         else pkSetSlotStringLength(vm, 1, matches[i], matches[i + 1] - matches[i]);
@@ -63,10 +70,19 @@ static void _re_match(PKVM* vm, RE* re, const char *input, uint32_t len,
       }
       if (!includeSub) break;
     }
-    if (ptr == matches[1]) break; // cannot advance
-    len -= matches[1] - ptr;
-    ptr = matches[1]; // point to last matched char
-  } while (global && ptr < input + len0);
+
+    // zero length captures, advance one character instead of break
+    if (ptr == matches[1]) {
+      int uclen = re_uc_len(re, ptr);
+      len -= uclen;
+      ptr += uclen;
+    } else {
+      len -= matches[1] - ptr;
+      ptr = matches[1]; // point to last matched char
+    }
+
+    lastMatch1 = matches[1];
+  } while (global && ptr <= input + len0);
 }
 
 DEF(_reMatch,
@@ -100,12 +116,15 @@ DEF(_reMatch,
   "  \\x00       Match hex character code (exactly 2 digits)\n"
   "  \\u0000     Match hex character code (exactly 4 digits)\n"
   "  \\U00000000 Match hex character code (exactly 8 digits)\n"
-  "  \\<, \\>     Match start-of-word and end-of-word.\n"
+  "  \\<, \\>     Match start-of-word and end-of-word\n"
+  "  \\B         Matches a nonword boundary\n"
   "  [...]      Match any character from set. Ranges like [a-z] are supported\n"
   "  [^...]     Match any character but ones from set\n"
-  "  {n}        Matches exactly n times.\n"
-  "  {n,}       Matches the preceding character at least n times.\n"
-  "  {n,m}      Matches the preceding character at least n and at most m times.\n\n"
+  "  {n}        Matches exactly n times\n"
+  "  {n,}       Matches the preceding character at least n times (greedy)\n"
+  "  {n,m}      Matches the preceding character at least n and at most m times (greedy)\n"
+  "  {n,}?      Matches the preceding character at least n times (non-greedy)\n"
+  "  {n,m}?     Matches the preceding character at least n and at most m times (non-greedy)\n\n"
   "Flags:\n"
   "  re.I, re.IGNORECASE    Perform case-insensitive matching\n"
   "  re.G, re.GLOBAL        Perform global matching\n"

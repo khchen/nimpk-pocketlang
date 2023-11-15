@@ -1,11 +1,11 @@
 /*
-Copyright (c) 2022 Kai-Hung Chen, Ward. All rights reserved.
+Copyright (c) Chen Kai-Hung, Ward. All rights reserved.
 
 Modifications:
-  * Add meta characters: \n \r \t \b \v \f \s \S \d \D \w \W
+  * Add meta characters: \n \r \t \b \v \f \s \S \d \D \w \W \B
                          \xHH \uHHHH \UHHHHHHHH.
   * Add case insensitive mode and binary mode.
-  * Deal with 0 and large number in {n,m}.
+  * Deal with 0 and large number in {n} {n,} {n,m} {n,}? {n, m}?.
   * Add wrap codes to compile and run the regex.
 */
 
@@ -88,13 +88,15 @@ struct rcode
 enum
 {
   /* Instructions which consume input bytes */
-  CHAR = 1,
+  /* SPLIT must odd number */
+  CHAR = 0,
   CLASS,
   MATCH,
   ANY,
   /* Assert position */
   WBEG,
   WEND,
+  NOTB,
   BOL,
   EOL,
   /* Other (special) instructions */
@@ -168,6 +170,44 @@ static int _code(const char *re, int n) {
   return result;
 }
 
+static int token(const char *re0, int* forward, int utf8) {
+  const char *re = re0;
+  int ch;
+  switch (*re) {
+    case 0:
+      return -1;
+
+    case '\\':
+      re++;
+      *forward = 2;
+      switch (*re) {
+        case 'd': case 'D': case 'w': case 'W': case 's': case 'S':
+          return -(*re);
+
+        case 'n': return '\n';
+        case 'r': return '\r';
+        case 't': return '\t';
+        case 'b': return '\b';
+        case 'f': return '\f';
+        case 'v': return '\v';
+        // case '\\': return '\\'; // deal '\' by fall-through
+
+        case 'x': *forward = 2; goto _hex;
+        case 'u': *forward = 4; goto _hex;
+        case 'U': *forward = 8; _hex:
+          ch = _code(re, *forward);
+          if (ch < 0) return -1;
+          *forward += 2;
+          return ch;
+      }
+      // fall-through -> skip the '\'
+
+    default:
+      *forward = re - re0 + uc_len(re, utf8);
+      return uc_code(re, utf8);
+  }
+}
+
 static int _compilecode(const char *re_loc, rcode *prog, int sizecode, int utf8)
 {
   const char *re = re_loc;
@@ -176,6 +216,7 @@ static int _compilecode(const char *re_loc, rcode *prog, int sizecode, int utf8)
   int alt_label = 0, c;
   int alt_stack[4096], altc = 0;
   int cap_stack[4096 * 5], capc = 0;
+  int n, ch;
 
   while (*re) {
     switch (*re) {
@@ -183,10 +224,8 @@ static int _compilecode(const char *re_loc, rcode *prog, int sizecode, int utf8)
       re++;
       if (!*re) return -1; /* Trailing backslash */
       switch (*re) {
-      case '<': case '>':
-        if (re - re_loc > 2 && re[-2] == '\\')
-          break;
-        EMIT(PC++, *re == '<' ? WBEG : WEND);
+      case '<': case '>': case 'B':
+        EMIT(PC++, *re == '<' ? WBEG : (*re == '>' ? WEND : NOTB ));
         term = PC;
         break;
       case 'd': case 'D': case 's': case 'S': case 'w': case 'W':
@@ -199,105 +238,70 @@ static int _compilecode(const char *re_loc, rcode *prog, int sizecode, int utf8)
         break;
       case 'n': case 'r': case 't': case 'b': case 'f': case 'v':
         term = PC;
-        EMIT(PC++, CHAR);
         switch (*re) {
-          case 'n': EMIT(PC++, '\n'); break;
-          case 'r': EMIT(PC++, '\r'); break;
-          case 't': EMIT(PC++, '\t'); break;
-          case 'b': EMIT(PC++, '\b'); break;
-          case 'f': EMIT(PC++, '\f'); break;
-          case 'v': EMIT(PC++, '\v'); break;
+          case 'n': ch = '\n'; goto _char;
+          case 'r': ch = '\r'; goto _char;
+          case 't': ch = '\t'; goto _char;
+          case 'b': ch = '\b'; goto _char;
+          case 'f': ch = '\f'; goto _char;
+          case 'v': ch = '\v'; goto _char;
         }
         break;
-      case 'x':
+      case 'x': n = 2; goto _hex;
+      case 'u': n = 4; goto _hex;
+      case 'U': n = 8; _hex:
         term = PC;
-        int ch = _code(re, 2);
+        ch = _code(re, n);
         if (ch < 0) return -1;
-        re += 2;
-        EMIT(PC++, CHAR);
-        EMIT(PC++, ch);
-        break;
-      case 'u':
-        term = PC;
-        int ch4 = _code(re, 4);
-        if (ch4 < 0) return -1;
-        re += 4;
-        EMIT(PC++, CHAR);
-        EMIT(PC++, ch4);
-        break;
-      case 'U':
-        term = PC;
-        int ch8 = _code(re, 8);
-        if (ch8 < 0) return -1;
-        re += 8;
-        EMIT(PC++, CHAR);
-        EMIT(PC++, ch8);
-        break;
+        re += n;
+        goto _char;
       default: goto _default;
       }
       break;
     default:
     _default:
       term = PC;
+      ch = uc_code(re, utf8);
+    _char:
       EMIT(PC++, CHAR);
-      c = uc_code(re, utf8); EMIT(PC++, c);
+      EMIT(PC++, ch);
       break;
     case '.':
       term = PC;
       EMIT(PC++, ANY);
       break;
     case '[':;
-      int cnt;
       term = PC;
       re++;
       EMIT(PC++, CLASS);
-      if (*re == '^') {
-        EMIT(PC++, 0);
-        re++;
-      } else
-        EMIT(PC++, 1);
+      int neg = (*re == '^');
+      EMIT(PC++, !neg);
+      if (neg) re++;
       PC++; /* Skip "# of pairs" byte */
-      for (cnt = 0; *re != ']'; cnt++) {
-        if (*re == '\\') {
-          re++;
-          switch (*re) {
-          case 'd': case 'D': case 'w': case 'W': case 's': case 'S':
-            EMIT(PC++, -1); EMIT(PC++, *re); re++; continue;
-          case 'n': EMIT(PC++, '\n'); EMIT(PC++, '\n'); re++; continue;
-          case 'r': EMIT(PC++, '\r'); EMIT(PC++, '\r'); re++; continue;
-          case 't': EMIT(PC++, '\t'); EMIT(PC++, '\t'); re++; continue;
-          case 'b': EMIT(PC++, '\b'); EMIT(PC++, '\f'); re++; continue;
-          case 'f': EMIT(PC++, '\f'); EMIT(PC++, '\f'); re++; continue;
-          case 'v': EMIT(PC++, '\v'); EMIT(PC++, '\v'); re++; continue;
-          case 'x': {
-              int ch = _code(re, 2);
-              if (ch < 0) return -1;
-              EMIT(PC++, ch); EMIT(PC++, ch);
-              re += 3;
-              continue;
-            }
-          case 'u': {
-              int ch4 = _code(re, 4);
-              if (ch4 < 0) return -1;
-              EMIT(PC++, ch4); EMIT(PC++, ch4);
-              re += 5;
-              continue;
-            }
-          case 'U': {
-              int ch8 = _code(re, 8);
-              if (ch8 < 0) return -1;
-              EMIT(PC++, ch8); EMIT(PC++, ch8);
-              re += 9;
-              continue;
-            }
-          }
+
+      int cnt = 0;
+      while (*re != ']') {
+        int forward;
+        int tok = token(re, &forward, utf8);
+        if (tok == -1) return -1;
+        re += forward;
+
+        if (tok < 0) { // \d\D\s\S\w\W etc.
+          EMIT(PC++, -1);
+          EMIT(PC++, -tok);
+          cnt++;
+          continue;
         }
-        if (!*re) return -1;
-        c = uc_code(re, utf8); EMIT(PC++, c); c = uc_len(re, utf8);
-        if (re[c] == '-' && re[c+1] != ']')
-          re += c+1;
-        c = uc_code(re, utf8); EMIT(PC++, c); c = uc_len(re, utf8);
-        re += c;
+
+        EMIT(PC++, tok);
+        if (*re == '-' && re[1] != ']') {
+          re++; // skip '-'
+          tok = token(re, &forward, utf8);
+          if (tok < 0) return -1; // not alow \d\D\s\S\w\W here
+          re += forward;
+        }
+        EMIT(PC++, tok);
+        cnt++;
       }
       EMIT(term + 2, cnt);
       break;
@@ -344,50 +348,63 @@ static int _compilecode(const char *re_loc, rcode *prog, int sizecode, int utf8)
       }
       break;
     case '{':;
-      int maxcnt = 0, mincnt = 0, i = 0, size = PC - term, start0 = 0, nojmp = 0;
+      int maxcnt = 0, mincnt = 0, size = PC - term;
+      int split = SPLIT, rsplit = RSPLIT;
       re++;
-      while (isdigit((unsigned char) *re))
+      // {n}, {n,}, or {n,m}
+      if (!isdigit((unsigned char) *re)) return -1;
+      while (isdigit((unsigned char) *re)) {
         mincnt = mincnt * 10 + *re++ - '0';
-      if (*re == ',') {
-        re++;
-        if (*re == '}') {
-          EMIT(PC, RSPLIT);
-          EMIT(PC+1, REL(PC, PC - size));
-          PC += 2;
-          maxcnt = mincnt;
-          nojmp = 1;
-        }
-        while (isdigit((unsigned char) *re))
-          maxcnt = maxcnt * 10 + *re++ - '0';
-      } else
-        maxcnt = mincnt;
-      if (mincnt > 65535 || maxcnt > 65535) return -1;
-      if (mincnt != 0) {
-        for (; i < mincnt-1; i++) {
-          if (code)
-            memcpy(&code[PC], &code[term], size*sizeof(int));
-          PC += size;
-        }
-      } else if (maxcnt == 0 && !nojmp) { // {0} or {0,0}, but no {0,} -> just jump over it
-        INSERT_CODE(term, 2, PC);
-        EMIT(term, JMP);
-        EMIT(term + 1, REL(term, PC));
-        term = PC;
-        break;
-      } else {
-        mincnt++;
-        start0 = 1;
+        if (mincnt > 65535) return -1;
       }
-      for (i = maxcnt-mincnt; i > 0; i--) {
-        EMIT(PC++, SPLIT);
-        EMIT(PC++, REL(PC, PC+((size+2)*i)));
+      if (*re == '}') { // {n}
+        maxcnt = mincnt;
+      } else if (*re == ',') { // {n,} or {n,m}
+        re++;
+        if (*re == '}') { // {n,}
+          maxcnt = -1;
+        } else if (isdigit((unsigned char) *re)) { // {n,m}
+          while (isdigit((unsigned char) *re)) {
+            maxcnt = maxcnt * 10 + *re++ - '0';
+            if (maxcnt > 65535) return -1;
+          }
+          if (*re != '}') return -1;
+        } else {
+          return -1;
+        }
+      } else {
+        return -1;
+      }
+      if (re[1] == '?') { // non-greedy
+        split = RSPLIT;
+        rsplit = SPLIT;
+        re++;
+      }
+      // {0}, {0,}, {0,2}
+      // {1}, {1,}, {1,3}
+      for (int i = 0; i < mincnt - 1; i++) {
         if (code)
           memcpy(&code[PC], &code[term], size*sizeof(int));
         PC += size;
       }
-      if (start0) {
+      if (maxcnt < 0) {
+        EMIT(PC, rsplit);
+        EMIT(PC+1, REL(PC, PC - size));
+        PC += 2;
+      }
+      else if (maxcnt > 0) {
+        int diff = mincnt == 0 ? 1 : 0;
+        for (int i = maxcnt - mincnt - diff; i > 0; i--) {
+          EMIT(PC++, split);
+          EMIT(PC++, REL(PC, PC+((size+2)*i)));
+          if (code)
+            memcpy(&code[PC], &code[term], size*sizeof(int));
+          PC += size;
+        }
+      }
+      if (mincnt == 0) {
         INSERT_CODE(term, 2, PC);
-        EMIT(term, SPLIT);
+        EMIT(term, maxcnt == 0 ? JMP : split);
         EMIT(term + 1, REL(term, PC));
         term = PC;
       }
@@ -395,11 +412,8 @@ static int _compilecode(const char *re_loc, rcode *prog, int sizecode, int utf8)
     case '?':
       if (PC == term) return -1;
       INSERT_CODE(term, 2, PC);
-      if (re[1] == '?') {
-        EMIT(term, RSPLIT);
-        re++;
-      } else
-        EMIT(term, SPLIT);
+      EMIT(term, re[1] == '?' ? RSPLIT : SPLIT);
+      if (re[1] == '?') re++;
       EMIT(term + 1, REL(term, PC));
       term = PC;
       break;
@@ -409,21 +423,15 @@ static int _compilecode(const char *re_loc, rcode *prog, int sizecode, int utf8)
       EMIT(PC, JMP);
       EMIT(PC + 1, REL(PC, term));
       PC += 2;
-      if (re[1] == '?') {
-        EMIT(term, RSPLIT);
-        re++;
-      } else
-        EMIT(term, SPLIT);
+      EMIT(term, re[1] == '?' ? RSPLIT : SPLIT);
+      if (re[1] == '?') re++;
       EMIT(term + 1, REL(term, PC));
       term = PC;
       break;
     case '+':
       if (PC == term) return -1;
-      if (re[1] == '?') {
-        EMIT(PC, SPLIT);
-        re++;
-      } else
-        EMIT(PC, RSPLIT);
+      EMIT(PC, re[1] == '?' ? SPLIT : RSPLIT);
+      if (re[1] == '?') re++;
       EMIT(PC + 1, REL(PC, term));
       PC += 2;
       term = PC;
@@ -438,12 +446,8 @@ static int _compilecode(const char *re_loc, rcode *prog, int sizecode, int utf8)
       EMIT(start + 1, REL(start, PC));
       term = PC;
       break;
-    case '^':
-      EMIT(PC++, BOL);
-      term = PC;
-      break;
-    case '$':
-      EMIT(PC++, EOL);
+    case '^': case '$':
+      EMIT(PC++, *re == '^' ? BOL : EOL);
       term = PC;
       break;
     }
@@ -605,9 +609,13 @@ if (spc > JMP) { \
   nsub->sub[npc[1]] = _sp; \
   npc += 2; \
   goto rec##nn; \
+} else if (spc == NOTB) { \
+  if (!((sp == s && sp == _sp) && !isword(sp)) && ((sp == s && sp == _sp) || \
+      (sp == _sp) || isword(sp) != isword(_sp))) \
+    deccheck(nn) \
+  npc++; goto rec##nn; \
 } else if (spc == WBEG) { \
-  if (((sp != s || sp != _sp) && isword(sp)) \
-      || !isword(_sp)) \
+  if (((sp != s || sp != _sp) && isword(sp)) || !isword(_sp)) \
     deccheck(nn) \
   npc++; goto rec##nn; \
 } else if (spc < 0) { \
@@ -618,7 +626,7 @@ if (spc > JMP) { \
   npc += npc[-1]; \
   fastrec(nn, list, listidx) \
 } else if (spc == WEND) { \
-  if (isword(_sp)) \
+  if (!isword(sp) || isword(_sp)) \
     deccheck(nn) \
   npc++; goto rec##nn; \
 } else if (spc == EOL) { \
@@ -774,6 +782,10 @@ void re_flags(RE* re, int* insensitive, int* utf8) {
 
 int re_max_matches(RE* re) {
   return re->count;
+}
+
+int re_uc_len(RE* re, const char * s) {
+  return uc_len(s, re->utf8);
 }
 
 void re_free(RE* re) {
